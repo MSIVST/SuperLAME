@@ -15,24 +15,30 @@ format support, high-quality resampling, and ID3 tagging.
 - **SuperFast MT:** parallel-instance encoding + bit-reservoir repacker
   (ported from fre:ac/BoCA, GPL), with a self-healing fallback that guarantees
   valid output.
-- **CPU dispatch:** one binary containing a `znver3` (AVX2/FMA) build and a
-  generic `x86-64` (SSE2) build, chosen at runtime by CPUID.
+- **CPU dispatch:** one fat binary containing four `libmp3lame` builds —
+  `znver5`, `znver4` (AVX-512), `znver3` (AVX2/FMA) and generic `x86-64` (SSE2) —
+  chosen at runtime by CPUID. (`znver4`/`znver5` are built but **unverified** —
+  no Zen 4/5 host was available to test them; `znver3` and SSE2 are tested.)
 - **Decoder:** MP3 → WAV via built-in libmpg123 (`--decode`).
-- **Input:** WAV (PCM 8/16/24/32-bit + 32/64-bit float) and AIFF (16/24-bit),
-  mono/stereo, any sample rate; `-` = stdin/stdout. 24-bit and float keep full
-  precision through LAME's float pipeline (no early truncation).
+- **Input:** WAV (PCM 8/16/24/32-bit + 32/64-bit float), AIFF (16/24-bit), and
+  FLAC (up to 24-bit, **multithreaded decode**), mono/stereo, any sample rate;
+  `-` = stdin/stdout. 24-bit, float and FLAC keep full precision through LAME's
+  float pipeline (no early truncation).
 - **Resampling:** non-MP3 rates (e.g. 96/88.2 kHz hi-res) resampled to the
   nearest legal rate with r8brain (high quality, linear phase), parallelized
   across cores. `--resample` forces a rate; low bitrates auto-downsample (LAME
   parity).
-- **Tags:** ID3v1 + ID3v2 (UTF-8): `--tt/--ta/--tl/--ty/--tc/--tn/--tg`.
-- **Robustness:** graceful out-of-memory refusal, hardened WAV/AIFF/MP3 parsers
-  (input-fuzzed), files up to ~4 GB.
+- **Tags:** ID3v1 + ID3v2 (UTF-8): `--tt/--ta/--tl/--ty/--tc/--tn/--tg`, plus
+  album art (`--ti cover.jpg`, JPEG/PNG). FLAC inputs carry their own Vorbis
+  comments and embedded cover art through automatically (CLI flags win).
+- **Robustness:** graceful out-of-memory refusal, hardened WAV/AIFF/MP3/FLAC
+  parsers (input-fuzzed + tested against the IETF FLAC conformance corpus),
+  files up to ~4 GB.
 
 ## Usage
 
 ```
-superlame-mt [options] <infile> [outfile.mp3]
+SuperLAME-1.0 [options] <infile> [outfile.mp3]
 
   -b n            CBR bitrate (kbps)
   --abr n         ABR (average) bitrate
@@ -43,18 +49,18 @@ superlame-mt [options] <infile> [outfile.mp3]
   -m mode         a=auto s=stereo m=mono j=joint
   -t n            worker threads (0 = all cores)
   --decode        decode an MP3 to WAV
-  --tt/--ta/...   ID3 tags
+  --tt/--ta/...   ID3 tags   |   --ti cover.jpg   album art (JPEG/PNG)
   -v / --quiet    verbose / silent
   --version --about --features --longhelp --license
 ```
 
-Run `superlame-mt --longhelp` for the full listing.
+Run `SuperLAME-1.0 --longhelp` for the full listing.
 
 ## Building
 
-Requires clang/LLVM (for `-march=znver3` and the r8brain intrinsics — MSVC won't
-build the SIMD paths) plus the three external sources (not vendored here — see
-[docs/BUILDING.md](docs/BUILDING.md)):
+Requires clang/LLVM (for the `-march=znverN` intrinsics and r8brain SIMD — MSVC
+won't build the SIMD paths). **dr_flac** is vendored (`dr_flac/`); the other
+three sources are fetched (see [docs/BUILDING.md](docs/BUILDING.md)):
 
 - LAME trunk **r6531**
 - **mpg123** ≥ 1.26 (built via its CMake port)
@@ -63,7 +69,7 @@ build the SIMD paths) plus the three external sources (not vendored here — see
 Then:
 
 ```sh
-bash build/build_dispatch.sh   # compile the two prefixed libmp3lame engines
+bash build/build_dispatch.sh   # compile the four prefixed libmp3lame engines
 bash build/build_final.sh      # compile the frontend + link the final binary
 ```
 
@@ -80,15 +86,26 @@ See `docs/BUILDING.md` for the exact fetch/patch steps.
   inputs are refused with a clear message rather than crashing.
 - Single-thread output is bit-identical to stock LAME; multi-thread differs only
   by inaudible (<-45 dB) reservoir reconciliation at chunk seams.
+- **FLAC limits:** the bundled dr_flac decoder handles up to 24-bit; 32-bit-per-
+  sample FLAC and a few unusual streams (mid-stream sample-rate/channel changes,
+  extreme Rice partition orders) are refused or partially decoded with a clear
+  message rather than producing garbage. Standard FLAC (any blocksize, predictor
+  order, hi-res up to 384 kHz, mono/stereo) is fully supported.
 
 ## Testing
 
-`tests/` contains the validation harnesses: `sqam.ps1` (EBU SQAM reference
-corpus), `fuzz_input.ps1` (malformed-input fuzzing of the parsers), and
-`scaling.ps1` (core-scaling benchmark). See `docs/` for measured results.
+`tests/` contains the validation harnesses:
+- `regression.ps1` — validity, ST-vs-MT equivalence, and znver3-vs-SSE2 parity.
+- `fuzz_input.ps1` — malformed WAV/AIFF/MP3/FLAC input fuzzing.
+- `flac_conformance.ps1` — the IETF CELLAR flac-test-files corpus.
+- `odaq.ps1` — objective ST-vs-MT parity over the ODAQ reference corpus.
+- `sqam.ps1` / `scaling.ps1` — EBU SQAM quality + core-scaling benchmarks.
+
+See `docs/` for measured results.
 
 ## License
 
-**GPL v2 or later.** This combines LAME (LGPL), mpg123 (LGPL), r8brain (MIT), and
-code derived from fre:ac/BoCA SuperFast (GPL v2+); the combined work is GPL. See
-[LICENSE](LICENSE) and [THIRD-PARTY.md](THIRD-PARTY.md).
+**GPL v2 or later.** This combines LAME (LGPL), mpg123 (LGPL), r8brain (MIT),
+dr_flac (public domain / MIT-0), and code derived from fre:ac/BoCA SuperFast
+(GPL v2+); the combined work is GPL. See [LICENSE](LICENSE) and
+[THIRD-PARTY.md](THIRD-PARTY.md).

@@ -42,8 +42,13 @@ build_engine () {
   echo "  [$name] lib: $(ls -la $OUT/libmp3lame.a|awk '{print $5}') bytes (prefix $prefix)"
 }
 
-echo "=== Building two engines ==="
-build_engine "znver3" "znver3"  "#define HAVE_XMMINTRIN_H 1
-#define MIN_ARCH_SSE 1" "__l3v_" || exit 1
-build_engine "sse2"   "x86-64" "" "__lsse_" || exit 1
+echo "=== Building four engines (znver5 / znver4 / znver3 / sse2) ==="
+# All AVX2+ engines get the SSE-intrinsics quantize path (HAVE_XMMINTRIN_H);
+# the generic x86-64 engine also has SSE2 available on any 64-bit CPU.
+SSEDEF="#define HAVE_XMMINTRIN_H 1
+#define MIN_ARCH_SSE 1"
+build_engine "znver5" "znver5" "$SSEDEF" "__zv5_"  || exit 1
+build_engine "znver4" "znver4" "$SSEDEF" "__zv4_"  || exit 1
+build_engine "znver3" "znver3" "$SSEDEF" "__l3v_"  || exit 1
+build_engine "sse2"   "x86-64" ""        "__lsse_" || exit 1
 echo "=== engines built ==="

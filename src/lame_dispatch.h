@@ -49,6 +49,7 @@ struct LameEngine {
     void   (*id3tag_set_comment)(lame_global_flags *, const char *);
     int    (*id3tag_set_track)(lame_global_flags *, const char *);
     int    (*id3tag_set_genre)(lame_global_flags *, const char *);
+    int    (*id3tag_set_albumart)(lame_global_flags *, const char *, size_t);
     size_t (*lame_get_id3v2_tag)(lame_global_flags *, unsigned char *, size_t);
     size_t (*lame_get_id3v1_tag)(lame_global_flags *, unsigned char *, size_t);
 };

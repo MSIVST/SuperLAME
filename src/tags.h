@@ -14,9 +14,11 @@
 
 struct TagConfig {
     std::string title, artist, album, year, comment, track, genre;
-    bool any   = false;     // any text field set
+    std::vector<unsigned char> art;   // album-art image bytes (JPEG/PNG), APIC
+    bool any   = false;     // any text field set (art alone also counts, see below)
     bool v1    = true;      // write ID3v1 (default on when tagging)
     bool v2    = true;      // write ID3v2 (default on when tagging)
+    bool hasContent() const { return any || !art.empty(); }
 };
 
 /* Render the requested tags into v2bytes (to prepend) and v1bytes (to append).
@@ -26,7 +28,7 @@ inline void RenderTags(const LameEngine &e, const TagConfig &t,
                        std::vector<unsigned char> &v1bytes) {
     v2bytes.clear();
     v1bytes.clear();
-    if (!t.any) return;
+    if (!t.hasContent()) return;
 
     lame_t g = e.init();
     e.id3tag_init(g);
@@ -44,6 +46,11 @@ inline void RenderTags(const LameEngine &e, const TagConfig &t,
     if (!t.comment.empty()) e.id3tag_set_comment(g, t.comment.c_str());
     if (!t.track.empty())   e.id3tag_set_track(g, t.track.c_str());
     if (!t.genre.empty())   e.id3tag_set_genre(g, t.genre.c_str());
+    /* Album art (APIC). Only lands in ID3v2; LAME sniffs the format (JPEG/PNG/
+     * GIF) from the image bytes itself. The caller has already validated the
+     * format and, for large art, ensured ID3v2.4 is active (v2.3 caps at 128K).*/
+    if (!t.art.empty() && t.v2)
+        e.id3tag_set_albumart(g, (const char *) t.art.data(), t.art.size());
 
     if (t.v2) {
         size_t need = e.lame_get_id3v2_tag(g, nullptr, 0);

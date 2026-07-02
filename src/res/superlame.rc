@@ -1,0 +1,32 @@
+/* Windows resource script for SuperLAME: application icon + version info.
+ * Compiled with llvm-rc and linked into the final executable. */
+#include <windows.h>
+
+/* Icon ID 1 becomes the executable's shell icon (lowest-numbered icon wins). */
+1 ICON "superlame.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION      1,0,0,0
+ PRODUCTVERSION   1,0,0,0
+ FILEOS           VOS__WINDOWS32
+ FILETYPE         VFT_APP
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"          /* U.S. English, Unicode */
+        BEGIN
+            VALUE "CompanyName",      "SuperLAME project"
+            VALUE "FileDescription",  "SuperLAME - SuperFast multithreaded LAME MP3 encoder"
+            VALUE "FileVersion",      "1.0"
+            VALUE "InternalName",     "SuperLAME"
+            VALUE "OriginalFilename", "SuperLAME-1.0.exe"
+            VALUE "ProductName",      "SuperLAME"
+            VALUE "ProductVersion",   "1.0 (SuperFast LAME 3.101 beta 3 + libmpg123)"
+            VALUE "LegalCopyright",   "GPL v2 or later. Combines LAME, mpg123, r8brain, fre:ac/BoCA SuperFast."
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END

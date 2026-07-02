@@ -12,6 +12,7 @@
 #include "decode.h"
 #include "resample.h"
 #include "tags.h"
+#include "flac_decode.h"
 
 #include <lame.h>
 #include <vector>
@@ -141,18 +142,21 @@ static bool FrameChainValid(const std::vector<unsigned char> &d) {
 }
 
 /* ------------------------------ WAV reader ------------------------------ */
-struct WavData {
-    int  rate = 0, channels = 0, bits = 0;
-    bool useFloat = false;              // true => samplesF holds normalized +/-1.0 float
-    std::vector<short> samples;        // interleaved 16-bit (16/8-bit sources)
-    std::vector<float> samplesF;       // interleaved float  (24/32-bit/float sources)
-    /* element count + raw pointer, regardless of type */
-    size_t count() const { return useFloat ? samplesF.size() : samples.size(); }
-    const void *data() const { return useFloat ? (const void *) samplesF.data() : (const void *) samples.data(); }
-};
+/* WavData lives in audiodata.h (shared with flac_decode.h). */
 
 static uint32_t rd32(const u8 *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t) p[3] << 24); }
 static uint16_t rd16(const u8 *p) { return p[0] | (p[1] << 8); }
+
+/* Identify an image by magic bytes. Returns "image/jpeg" / "image/png" for the
+ * two formats MP3 players actually render as APIC cover art, or nullptr for
+ * anything else (WebP/JXL/GIF/BMP/...) which we deliberately refuse rather than
+ * embed art no player will show. */
+static const char *SniffCoverMime(const std::vector<unsigned char> &b) {
+    if (b.size() >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) return "image/jpeg";
+    if (b.size() >= 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47 &&
+        b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A)  return "image/png";
+    return nullptr;
+}
 
 /* Clamp a 32-bit value into 16-bit signed range. (Retained for reference.) */
 [[maybe_unused]] static inline short clamp16(int32_t v) {
@@ -162,6 +166,15 @@ static uint16_t rd16(const u8 *p) { return p[0] | (p[1] << 8); }
 }
 
 static bool ReadAiff(const std::vector<u8> &buf, WavData &w);   /* fwd decl */
+
+/* FLAC decode is routed through ReadWav (same in-RAM buffer). ReadWav's
+ * signature is fixed (used in the RAM-guard peek too), so the decode knobs and
+ * the metadata/art it recovers are carried in file-scope state set/read by
+ * main() around the call. */
+static int      g_flacThreads = 1;      /* set before ReadWav; MT decode width */
+static bool     g_flacQuiet   = false;
+static FlacMeta g_flacMeta;             /* embedded tags + front-cover art */
+static bool     g_inputWasFlac = false; /* true if the last ReadWav decoded FLAC */
 
 /* WAV reader accepting 8/16/24/32-bit integer PCM and 32/64-bit IEEE float,
  * including WAVE_FORMAT_EXTENSIBLE, any sample rate, mono or stereo. Everything
@@ -194,6 +207,14 @@ static bool ReadWav(const char *path, WavData &w) {
     /* AIFF (big-endian) is handled by a separate parser on the same bytes. */
     if (sz >= 12 && memcmp(buf.data(), "FORM", 4) == 0 && memcmp(buf.data() + 8, "AIFF", 4) == 0)
         return ReadAiff(buf, w);
+
+    /* FLAC: "fLaC" magic. Decode from the in-RAM buffer into the float path. */
+    if (sz >= 4 && memcmp(buf.data(), "fLaC", 4) == 0) {
+        g_flacMeta = FlacMeta{};
+        bool ok = DecodeFlac(buf, w, g_flacMeta, g_flacThreads, g_flacQuiet);
+        g_inputWasFlac = ok;
+        return ok;
+    }
 
     if (sz < 44 || memcmp(buf.data(), "RIFF", 4) != 0 || memcmp(buf.data() + 8, "WAVE", 4) != 0) {
         fprintf(stderr, "input is not a WAV or AIFF file\n"); return false;
@@ -572,10 +593,13 @@ void SuperEncoder::Finish() {
 #define SUPERLAME_LAME_VER  "3.101 beta 3 (SVN r6531)"
 #define SUPERLAME_MPG123    "1.33.6"
 
-/* One-line LAME-style banner printed at the top of every run. */
+/* One-line banner printed at the top of every run. Shows SuperLAME's own
+ * version prominently, with the underlying LAME lineage in parentheses. (LAME's
+ * own version string is kept intact everywhere it matters -- the MP3 Xing/Info
+ * tag still reports LAME %s so players and analysers see the true encoder.) */
 static void banner() {
-    printf("superlame-mt version %s 64bits (SuperFast LAME %s + libmpg123)\n",
-           SUPERLAME_VERSION, SUPERLAME_LAME_VER);
+    printf("SuperLAME %s 64bits (SuperFast LAME %s + libmpg123 %s)\n",
+           SUPERLAME_VERSION, SUPERLAME_LAME_VER, SUPERLAME_MPG123);
 }
 
 static void usage(const char *prog) {
@@ -583,9 +607,9 @@ static void usage(const char *prog) {
     printf("\n");
     printf("usage: %s [options] <infile> [outfile.mp3]\n", prog);
     printf("\n");
-    printf("    <infile> is WAV (PCM 8/16/24/32-bit or 32/64-bit float) or AIFF\n");
-    printf("    (16/24-bit), mono or stereo, any sample rate. Use \"-\" for\n");
-    printf("    stdin/stdout.\n");
+    printf("    <infile> is WAV (PCM 8/16/24/32-bit or 32/64-bit float), AIFF\n");
+    printf("    (16/24-bit) or FLAC (any bit depth, multithreaded decode), mono or\n");
+    printf("    stereo, any sample rate. Use \"-\" for stdin/stdout.\n");
     printf("\n");
     printf("RECOMMENDED:\n");
     printf("    superlame-mt -V2 -t0 input.wav output.mp3      (VBR, all cores)\n");
@@ -608,7 +632,8 @@ static void usage(const char *prog) {
     printf("  ID3 tags:\n");
     printf("    --tt title      --ta artist     --tl album\n");
     printf("    --ty year       --tc comment    --tn track[/total]\n");
-    printf("    --tg genre      --id3v1-only    --id3v2-only\n");
+    printf("    --tg genre      --ti file.jpg   (album art: JPEG/PNG)\n");
+    printf("    --id3v1-only    --id3v2-only\n");
     printf("\n");
     printf("    --about         what this build is and what's in it\n");
     printf("    --features      feature/capability list\n");
@@ -660,7 +685,7 @@ static void longhelp(const char *prog) {
 static void about() {
     banner();
     printf("\n");
-    printf("superlame-mt is a custom MP3 encoder that combines:\n");
+    printf("SuperLAME is a custom MP3 encoder that combines:\n");
     printf("\n");
     printf("  * LAME %s -- the encoder core, the de-facto best MP3 encoder.\n", SUPERLAME_LAME_VER);
     printf("  * libmpg123 %s -- built in as the MPEG decoder (the --decode path).\n", SUPERLAME_MPG123);
@@ -668,10 +693,16 @@ static void about() {
     printf("    reported as LAME bug #516.\n");
     printf("  * SuperFast multithreading -- Robert Kausch's (fre:ac) technique of\n");
     printf("    running many encoder instances in parallel and repacking the MP3\n");
-    printf("    bit reservoir, ported here as a standalone tool (no fre:ac needed).\n");
+    printf("    bit reservoir, ported here as a standalone tool.\n");
+    printf("  * r8brain-free-src -- Aleksey Vaneev's high-quality sample-rate\n");
+    printf("    converter. Hi-res input (e.g. 96/88.2 kHz) is resampled to a legal\n");
+    printf("    MP3 rate with a linear-phase, ~200 dB-stopband filter -- cleaner\n");
+    printf("    than LAME's internal resampler -- and the conversion is split\n");
+    printf("    across CPU cores (per-channel + chunked), so it adds little to the\n");
+    printf("    total time even on long hi-res files.\n");
     printf("\n");
-    printf("  Built with clang/LLVM, tuned for AMD Zen 3 (znver3) with an automatic\n");
-    printf("  SSE2 fallback for older CPUs.\n");
+    printf("  Built with clang/LLVM, with a runtime CPU-dispatch fat binary tuned\n");
+    printf("  for AMD Zen 5/4/3 (znver5/4/3) and a generic SSE2 fallback.\n");
     printf("\n");
     printf("  Active CPU engine right now: %s\n", SelectLameEngine().name);
 }
@@ -685,14 +716,16 @@ static void features() {
     printf("  [x] Bit-reservoir-correct output (decodes cleanly everywhere)\n");
     printf("  [x] LAME/Xing info tag (frame count, TOC, length, CRC)\n");
     printf("  [x] q4 quality fix for CBR/ABR (LAME bug #516)\n");
-    printf("  [x] Runtime CPU dispatch: znver3 AVX2/FMA  or  x86-64 SSE2\n");
+    printf("  [x] Runtime CPU dispatch: znver5 / znver4 / znver3 / x86-64 (CPUID)\n");
     printf("  [x] MP3 -> WAV decoding (--decode, via libmpg123)\n");
-    printf("  [x] WAV input: PCM 8/16/24/32-bit + 32/64-bit float, any rate\n");
+    printf("  [x] WAV + AIFF + FLAC input (FLAC = multithreaded decode)\n");
+    printf("  [x] WAV: PCM 8/16/24/32-bit + 32/64-bit float; any rate; stdin/stdout\n");
     printf("  [x] full-precision float pipeline for >16-bit sources (no early truncation)\n");
     printf("  [x] high-quality parallel resampling (r8brain); --resample + low-bitrate auto\n");
     printf("  [x] mono / stereo / joint-stereo\n");
     printf("  [x] ID3v1 + ID3v2 tagging (--tt/--ta/--tl/--ty/--tc/--tn/--tg), UTF-8\n");
-    printf("  [x] WAV + AIFF input; stdin/stdout via \"-\"; LAME --preset aliases\n");
+    printf("  [x] album art (--ti, JPEG/PNG APIC); FLAC tags + cover imported auto\n");
+    printf("  [x] LAME --preset aliases; UTF-8 console output\n");
     printf("  [ ] raw headerless PCM input (-r) not yet supported\n");
 }
 
@@ -716,12 +749,18 @@ static void license() {
 static void version() {
     banner();
     printf("\n");
-    printf("  encoder : LAME %s\n", SUPERLAME_LAME_VER);
-    printf("  decoder : libmpg123 %s (built-in)\n", SUPERLAME_MPG123);
-    printf("  quality : maikmerten q4 patch (LAME bug #516, CBR/ABR)\n");
-    printf("  parallel: SuperFast chunk-split + bit-reservoir repack (R. Kausch)\n");
-    printf("  target  : znver3 (AVX2/FMA) with x86-64 SSE2 runtime fallback\n");
-    printf("  active  : %s\n", SelectLameEngine().name);
+    printf("  SuperLAME  : %s\n", SUPERLAME_VERSION);
+    printf("  encoder    : LAME %s\n", SUPERLAME_LAME_VER);
+    printf("               (the MP3 Xing/Info tag reports this LAME version, so\n");
+    printf("                players and analysers see the true encoder lineage.)\n");
+    printf("  decoder    : libmpg123 %s (built-in)\n", SUPERLAME_MPG123);
+    printf("  resampler  : r8brain-free-src (linear-phase, parallelized)\n");
+    printf("  quality    : maikmerten q4 patch (LAME bug #516, CBR/ABR)\n");
+    printf("  parallel   : SuperFast chunk-split + bit-reservoir repack (R. Kausch)\n");
+    printf("  engines    : znver5 / znver4 / znver3 / x86-64 (CPUID-selected)\n");
+    printf("               (znver4/znver5 are built but UNVERIFIED -- no Zen 4/5\n");
+    printf("                host was available to test them; znver3 + SSE2 are.)\n");
+    printf("  active     : %s\n", SelectLameEngine().name);
 }
 
 static const char *modeName(int vbrMode) {
@@ -737,10 +776,22 @@ int main(int argc, char **argv) {
     bool verbose = false, quiet = false, decode = false;
     int  resampleTo = 0;      /* --resample: explicit output rate (Hz), 0 = auto */
     TagConfig tag;
+    const char *coverPath = nullptr;   /* --ti: album-art image file (0 = none) */
     const char *inPath = nullptr, *outPath = nullptr;
-    const char *prog = "superlame-mt";
+    const char *prog = "SuperLAME";
 
 #ifdef _WIN32
+    /* Render our UTF-8 output correctly in the console. Without this the UTF-8
+     * bytes we print (filenames with umlauts / accents / U+221E etc.) show as
+     * mojibake -- the file was always written correctly, but watching the CLI
+     * clobber the text was confusing. Setting the console output code page to
+     * UTF-8 makes printf/fprintf bytes display as the intended glyphs (on a
+     * modern console with a Unicode-capable font). Saved+restored is overkill
+     * for a one-shot CLI, so we just set it for the process's lifetime. */
+    UINT prevCP = GetConsoleOutputCP();
+    SetConsoleOutputCP(CP_UTF8);
+    (void) prevCP;
+
     /* main()'s ANSI argv loses characters outside the code page (e.g. the
      * infinity in a filename). Re-acquire the real UTF-16 command line and
      * re-express every argument as UTF-8 so paths survive intact. */
@@ -794,6 +845,7 @@ int main(int argc, char **argv) {
         else if (a == "--tc" && i + 1 < argc)  { tag.comment = argv[++i]; tag.any = true; }
         else if (a == "--tn" && i + 1 < argc)  { tag.track   = argv[++i]; tag.any = true; }
         else if (a == "--tg" && i + 1 < argc)  { tag.genre   = argv[++i]; tag.any = true; }
+        else if (a == "--ti" && i + 1 < argc)  { coverPath = argv[++i]; }   /* album art */
         else if (a == "--id3v1-only")          { tag.v2 = false; }
         else if (a == "--id3v2-only")          { tag.v1 = false; }
         else if (a == "--add-id3v2")           { tag.v2 = true;  }
@@ -930,11 +982,69 @@ int main(int argc, char **argv) {
     }
 
     WavData wav;
+    g_flacThreads = numThreads;      /* MT width for FLAC decode (if input is FLAC) */
+    g_flacQuiet   = quiet;
+    g_inputWasFlac = false;
     try {
         if (!ReadWav(inPath, wav)) return 1;
     } catch (const std::bad_alloc &) {
         fprintf(stderr, "error: out of memory reading input (file too large for available RAM).\n");
         return 1;
+    }
+
+    /* FLAC carries its own metadata: fill any tag field the user did NOT set on
+     * the CLI (explicit --tt/--ta/... always win). Embedded front-cover art is
+     * used only if no --ti was given (handled in Phase B where art is wired). */
+    if (g_inputWasFlac && g_flacMeta.tags.any) {
+        const TagConfig &ft = g_flacMeta.tags;
+        if (tag.title.empty()   && !ft.title.empty())   tag.title   = ft.title;
+        if (tag.artist.empty()  && !ft.artist.empty())  tag.artist  = ft.artist;
+        if (tag.album.empty()   && !ft.album.empty())   tag.album   = ft.album;
+        if (tag.year.empty()    && !ft.year.empty())    tag.year    = ft.year;
+        if (tag.comment.empty() && !ft.comment.empty()) tag.comment = ft.comment;
+        if (tag.track.empty()   && !ft.track.empty())   tag.track   = ft.track;
+        if (tag.genre.empty()   && !ft.genre.empty())   tag.genre   = ft.genre;
+        if (!tag.title.empty() || !tag.artist.empty() || !tag.album.empty() ||
+            !tag.year.empty()  || !tag.comment.empty() ||
+            !tag.track.empty() || !tag.genre.empty())
+            tag.any = true;
+    }
+
+    /* Album art (APIC). Priority: --ti <file> (explicit) beats FLAC-embedded art.
+     * We accept only JPEG/PNG (what players render); anything else is refused
+     * with a clear message. Large art forces ID3v2.4 (v2.3 caps APIC at 128K). */
+    {
+        std::vector<unsigned char> art;
+        const char *artSource = nullptr;
+        if (coverPath) {
+            FILE *cf = open_utf8(coverPath, L"rb");
+            if (!cf) { fprintf(stderr, "cannot open album-art file: %s\n", coverPath); return 1; }
+            int64_t asz = FileSize64(cf);
+            if (asz > 0) { art.resize((size_t) asz);
+                if (fread(art.data(), 1, (size_t) asz, cf) != (size_t) asz) art.clear(); }
+            fclose(cf);
+            if (art.empty()) { fprintf(stderr, "album-art file is empty or unreadable: %s\n", coverPath); return 1; }
+            artSource = coverPath;
+        } else if (g_inputWasFlac && !g_flacMeta.art.data.empty()) {
+            art = g_flacMeta.art.data;             /* embedded front cover */
+            artSource = "embedded FLAC cover";
+        }
+        if (!art.empty()) {
+            const char *mime = SniffCoverMime(art);
+            if (!mime) {
+                fprintf(stderr, "album art: %s is not JPEG or PNG; skipping "
+                        "(MP3 players only display JPEG/PNG cover art).\n", artSource);
+            } else {
+                if (art.size() > 128 * 1024) tag.v2 = true;   /* ensure v2 on */
+                /* Large images require ID3v2.4 (LAME caps APIC at 128K under
+                 * v2.3). We already emit v2.4+UTF8 in RenderTags, so this is
+                 * covered; just note it for the user on very large art. */
+                if (art.size() > 512 * 1024 && !quiet)
+                    fprintf(stderr, "note: embedding a %.0f KB %s cover (ID3v2.4).\n",
+                            art.size() / 1024.0, mime + 6);
+                tag.art = std::move(art);
+            }
+        }
     }
 
     /* Decide the output sample rate, then (if it differs from the input)
@@ -1053,7 +1163,7 @@ int main(int argc, char **argv) {
 
     /* Render ID3 tags (frontend writes v2 before / v1 after the MP3 stream). */
     std::vector<unsigned char> id3v2, id3v1;
-    if (tag.any) RenderTags(SelectLameEngine(), tag, id3v2, id3v1);
+    if (tag.hasContent()) RenderTags(SelectLameEngine(), tag, id3v2, id3v1);
 
 #ifdef _WIN32
     FILE *of = open_utf8(outPath, L"wb");
