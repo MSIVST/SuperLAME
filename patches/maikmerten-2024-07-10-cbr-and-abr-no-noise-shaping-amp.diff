@@ -1,0 +1,15 @@
+Index: libmp3lame/lame.c
+===================================================================
+--- libmp3lame/lame.c	(Revision 6531)
++++ libmp3lame/lame.c	(Arbeitskopie)
+@@ -476,6 +476,10 @@
+         break;
+     }
+ 
++    if(cfg->vbr == vbr_off || cfg->vbr == vbr_abr) {
++        cfg->noise_shaping_amp = 0;
++    }
++
+ }
+ 
+ 

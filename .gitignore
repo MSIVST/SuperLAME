@@ -1,0 +1,31 @@
+# Build outputs
+*.o
+*.obj
+*.exe
+*.a
+*.lib
+*.dll
+build/out/
+build/*/obj/
+final/
+
+# Third-party sources (fetched separately - see docs/BUILDING.md)
+lame-r6531/
+mpg123-*/
+r8brain/
+boca-current/
+superfast-*/
+
+# Test corpora / large media (never commit)
+*.wav
+*.flac
+*.aiff
+*.mp3
+*.ogg
+*.wv
+ALBUMS_WAV/
+SQAM/
+
+# Scratch
+*.log
+*.tmp
