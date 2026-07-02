@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
-# Phase 4: dual-engine single binary.
-#   Engine A: libmp3lame @ -march=znver3  (symbols prefixed __l3v_)
-#   Engine B: libmp3lame @ -march=x86-64  (symbols prefixed __lsse_)
-# A tiny CPUID check at startup selects which engine the workers use.
+# Build the four prefixed libmp3lame engines for the CPUID-dispatch fat binary:
+#   znver5 __zv5_ / znver4 __zv4_ (AVX-512) / znver3 __l3v_ (AVX2) / x86-64 __lsse_ (SSE2)
+# A CPUID check at startup selects which engine the workers use.
+#
+# Paths are derived from $ROOT (the directory that holds lame-r6531/, mpg123-*/,
+# r8brain/, and the build/ output dir). Override by exporting ROOT, e.g.:
+#   ROOT=/path/to/deps bash build/build_dispatch.sh
 set -u
-SRC="/c/.Claude_LAMEsf/lame-r6531"
-MPG123INC="/c/.Claude_LAMEsf/mpg123-1.33.6/src/include"
-B="/c/.Claude_LAMEsf/build"
+# Default ROOT to the repo's parent (deps sit alongside the checkout); override
+# by exporting ROOT to wherever lame-r6531/, mpg123-*/, r8brain/ and build/ live.
+ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+SRC="$ROOT/lame-r6531"
+MPG123INC="$ROOT/mpg123-1.33.6/src/include"
+B="$ROOT/build"
 D="$B/dispatch"; mkdir -p "$D"
 CRT="-D_DLL -D_MT -Xclang --dependent-lib=msvcrt"
 SOURCES="VbrTag bitstream encoder fft gain_analysis id3tag lame newmdct presets psymodel quantize quantize_pvt reservoir set_get tables takehiro util vbrquantize version mpglib_interface"

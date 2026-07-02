@@ -13,13 +13,17 @@
 
 ## Fetch the external sources
 Place these next to this repo (the build scripts expect them under
-`C:/.Claude_LAMEsf/` — adjust paths in build/*.sh to your layout):
+a deps directory alongside this repo, or set `ROOT` when invoking build/*.sh):
 
 1. **LAME r6531** — SVN snapshot of trunk at revision 6531. Apply the patch in
    `patches/` (maikmerten q4 fix) to `libmp3lame/lame.c`, plus the small
    verbose-notice + `q_clamped_from` field described in docs/BUILD_PLAN.md.
 2. **mpg123** (>= 1.26) — build the static `libmpg123` via its `ports/cmake`
-   with clang (dynamic UCRT: `-D_DLL -D_MT --dependent-lib=msvcrt`).
+   with clang (dynamic UCRT: `-D_DLL -D_MT --dependent-lib=msvcrt`). Add
+   `-ffile-prefix-map=<your mpg123 dir>=mpg123/` to `CMAKE_C_FLAGS_RELEASE` so
+   libmpg123's `__FILE__`-based error strings do not bake your local build path
+   into the final binary. (LAME already uses relative `__FILE__`, so only
+   mpg123 needs this.)
 3. **r8brain-free-src** — clone; header-only, no build step.
 
 ## Build

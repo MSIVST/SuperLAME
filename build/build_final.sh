@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
-# Phase 4 final: link the frontend + dispatch shim against BOTH prefixed engines
-# (znver3 + sse2) into one binary with runtime CPUID selection.
+# Final link: frontend (+ dr_flac) + dispatch shim against all FOUR prefixed
+# engines (znver5/znver4/znver3/x86-64) into one binary with CPUID selection.
+#
+# Paths derive from $ROOT (holds superlame-mt/ sources, lame-r6531/, mpg123-*/,
+# r8brain/, and build/). Override by exporting ROOT. The frontend source dir is
+# $MT (defaults to $ROOT/superlame-mt).
 set -u
-MT="/c/.Claude_LAMEsf/superlame-mt"
-LAMEINC="/c/.Claude_LAMEsf/lame-r6531/include"
-MPG123LIB="/c/.Claude_LAMEsf/build/mpg123-cmake/src/libmpg123/mpg123.lib"
-ZV5="/c/.Claude_LAMEsf/build/dispatch/znver5/libmp3lame.a"
-ZV4="/c/.Claude_LAMEsf/build/dispatch/znver4/libmp3lame.a"
-L3V="/c/.Claude_LAMEsf/build/dispatch/znver3/libmp3lame.a"
-LSSE="/c/.Claude_LAMEsf/build/dispatch/sse2/libmp3lame.a"
-OUT="/c/.Claude_LAMEsf/build/final"; mkdir -p "$OUT"
+# Default ROOT to the repo's parent (deps sit alongside the checkout); override
+# by exporting ROOT. $MT is the frontend source dir (defaults to $ROOT/superlame-mt,
+# i.e. this repo's src/ if you symlink or point MT at it).
+ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+MT="${MT:-$ROOT/superlame-mt}"
+LAMEINC="$ROOT/lame-r6531/include"
+MPG123LIB="$ROOT/build/mpg123-cmake/src/libmpg123/mpg123.lib"
+ZV5="$ROOT/build/dispatch/znver5/libmp3lame.a"
+ZV4="$ROOT/build/dispatch/znver4/libmp3lame.a"
+L3V="$ROOT/build/dispatch/znver3/libmp3lame.a"
+LSSE="$ROOT/build/dispatch/sse2/libmp3lame.a"
+OUT="$ROOT/build/final"; mkdir -p "$OUT"
 
-MPG123INC="/c/.Claude_LAMEsf/mpg123-1.33.6/src/include"
+MPG123INC="$ROOT/mpg123-1.33.6/src/include"
 CRT="-D_DLL -D_MT -Xclang --dependent-lib=msvcrt"
 # Frontend itself built at znver3 (it's not hot; the engines carry the DSP).
-R8BRAIN="/c/.Claude_LAMEsf/r8brain"
+R8BRAIN="$ROOT/r8brain"
 CXXFLAGS="-std=c++17 -O2 -march=x86-64 $CRT -I$MT -I$LAMEINC -I$MPG123INC -I$R8BRAIN -Wall -Wno-unused-parameter"
 
 echo "=== Compiling frontend + dispatch ==="

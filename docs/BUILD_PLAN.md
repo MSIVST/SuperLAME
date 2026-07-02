@@ -41,7 +41,7 @@ if (gfp->quality < 4) {
 
 **Behavioral effect (CBR/ABR only; VBR untouched):** `-q 0..3` become equivalent to `-q 4`; default (`LAME_DEFAULT_QUALITY = 3`) effectively becomes 4; `-q 4..9` unchanged. No CLI flags added/removed — `-q` is still parsed normally, just clamped internally. `--verbose` will show `quality: 4` and `amplification: 0`, confirming the fix is live.
 
-## Source inventory (staged in `C:\.Claude_LAMEsf`)
+## Source inventory (staged in the build root; see docs/BUILDING.md)
 
 | Path | Role |
 |------|------|

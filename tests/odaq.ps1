@@ -11,10 +11,12 @@
 # test -- it validates the encoder's *own* correctness, not MP3-vs-original
 # perceptual quality (which needs human listeners).
 $ErrorActionPreference = "Continue"
-$exe = "C:\.Claude_LAMEsf\build\final\SuperLAME-1.0.exe"
-$ff  = "C:\.Claude_LAMEsf\ffmpeg.exe"
-$odaq = "C:\.Claude_LAMEsf\ODAQ (Open Dataset of Audio Quality)"
-$work = "C:\.Claude_LAMEsf\build\odaqwork"
+# Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
+$Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
+$exe = "$Root\build\final\SuperLAME-1.0.exe"
+$ff  = "$Root\ffmpeg.exe"
+$odaq = "$Root\ODAQ (Open Dataset of Audio Quality)"
+$work = "$Root\build\odaqwork"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 
 $refs = Get-ChildItem -Path $odaq -Recurse -Filter "reference.wav" -ErrorAction SilentlyContinue

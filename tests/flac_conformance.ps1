@@ -19,10 +19,12 @@
 # ffmpeg-decoded wav, and require the two MP3s match -- i.e. our decoder produced
 # the same samples ffmpeg did before the (identical) encoder ran).
 $ErrorActionPreference = "Continue"
-$exe  = "C:\.Claude_LAMEsf\build\final\SuperLAME-1.0.exe"
-$ff   = "C:\.Claude_LAMEsf\ffmpeg.exe"
-$root = "C:\.Claude_LAMEsf\flac-test-files"
-$work = "C:\.Claude_LAMEsf\build\flacconf"
+# Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
+$Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
+$exe  = "$Root\build\final\SuperLAME-1.0.exe"
+$ff   = "$Root\ffmpeg.exe"
+$root = "$Root\flac-test-files"
+$work = "$Root\build\flacconf"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 
 function RunExe($argList, $timeoutMs=30000) {

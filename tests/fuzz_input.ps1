@@ -2,9 +2,11 @@
 # (WAV read, AIFF read, MP3 --decode) and check the program FAILS CLEANLY
 # (exit 1, no crash/hang) rather than crashing (negative/huge exit = SEH crash).
 $ErrorActionPreference = "Continue"
-$exe = "C:\.Claude_LAMEsf\build\final\superlame-mt.exe"
-$ff  = "C:\.Claude_LAMEsf\ffmpeg.exe"
-$d   = "C:\.Claude_LAMEsf\build\fuzzin"
+# Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
+$Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
+$exe = "$Root\build\final\superlame-mt.exe"
+$ff  = "$Root\ffmpeg.exe"
+$d   = "$Root\build\fuzzin"
 New-Item -ItemType Directory -Force -Path $d | Out-Null
 
 # A valid seed WAV + MP3 to mutate from.

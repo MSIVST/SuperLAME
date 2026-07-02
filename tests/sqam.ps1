@@ -5,11 +5,13 @@
 # this corpus discriminates them (= real coverage for the fix).
 param([string]$which = "fixed")   # "fixed" | "buggy" | "both"
 $ErrorActionPreference = "Continue"
-$ff    = "C:\.Claude_LAMEsf\ffmpeg.exe"
-$fixed = "C:\.Claude_LAMEsf\build\final\superlame-mt.exe"
-$buggy = "C:\.Claude_LAMEsf\build\prefix-build\superlame-prefix.exe"
-$sqam  = "C:\.Claude_LAMEsf\SQAM"
-$work  = "C:\.Claude_LAMEsf\build\sqam"
+# Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
+$Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
+$ff    = "$Root\ffmpeg.exe"
+$fixed = "$Root\build\final\superlame-mt.exe"
+$buggy = "$Root\build\prefix-build\superlame-prefix.exe"
+$sqam  = "$Root\SQAM"
+$work  = "$Root\build\sqam"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 
 $modes = @(@("-V0"),@("-V2"),@("-b","320"),@("-b","128"),@("--abr","192"))

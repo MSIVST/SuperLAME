@@ -6,10 +6,12 @@
 #   - znver3 engine == sse2 engine (audio-equivalent)
 #   - LAME/Xing info tag present in MT output
 $ErrorActionPreference = "Continue"
-$exe = "C:\.Claude_LAMEsf\build\final\superlame-mt.exe"
-$ff  = "C:\.Claude_LAMEsf\ffmpeg.exe"
-$fp  = "C:\.Claude_LAMEsf\ffprobe.exe"
-$work = "C:\.Claude_LAMEsf\build\regress"
+# Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
+$Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
+$exe = "$Root\build\final\superlame-mt.exe"
+$ff  = "$Root\ffmpeg.exe"
+$fp  = "$Root\ffprobe.exe"
+$work = "$Root\build\regress"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 
 $pass = 0; $fail = 0

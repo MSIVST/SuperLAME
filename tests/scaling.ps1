@@ -1,9 +1,11 @@
 # SuperFast core-scaling benchmark: encode a long real file at increasing thread
 # counts, measure wall time + speedup. Uses the 2L DXD file (202s) so the work
 # is large enough for clean measurements. Best-of-3 per thread count.
-$mt = "C:\.Claude_LAMEsf\build\final\superlame-mt.exe"
-$in = "C:\.Claude_LAMEsf\2L-077-stereo-DXD_21.wav"
-$d  = "C:\.Claude_LAMEsf\build\2ltest"
+# Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
+$Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
+$mt = "$Root\build\final\superlame-mt.exe"
+$in = "$Root\2L-077-stereo-DXD_21.wav"
+$d  = "$Root\build\2ltest"
 $audioSec = 202.16
 
 Write-Host "SuperFast core scaling (2L-077 DXD, 202s, -V2, best of 3):`n"
