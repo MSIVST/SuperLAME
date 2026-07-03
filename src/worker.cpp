@@ -19,6 +19,12 @@ SuperWorker::SuperWorker(const EncoderConfig &config, int iOverlap) {
     context = eng->init();
 
     eng->set_in_samplerate(context, config.rate);
+    /* Force output rate == input rate so LAME's internal per-frame resampler can
+     * NEVER run inside a worker. Any in-worker rate change would break the
+     * SuperFast overlap accounting (which assumes 1 input frame == 1 output
+     * frame) and silently drop frames. The frontend has already resampled the
+     * whole stream to the desired rate with r8brain before chunking. */
+    eng->set_out_samplerate(context, config.rate);
     eng->set_num_channels(context, config.channels);
 
     /* Bitrate / VBR (SuperFast "Preset 0" custom path). */

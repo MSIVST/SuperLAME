@@ -588,6 +588,40 @@ void SuperEncoder::Finish() {
     for (auto *w : workers) w->Wait();
 }
 
+/* Ask LAME which output sample rate it would choose for this exact encoder
+ * configuration and input rate. LAME auto-downsamples in several cases -- most
+ * importantly the high VBR levels (-V7..-V9 drop to 22050/11025 Hz) and low
+ * CBR/ABR bitrates -- via its internal per-frame resampler. In SuperFast MT that
+ * internal resampler is fatal: the overlap accounting assumes 1 input frame == 1
+ * output frame, so any in-worker rate change silently drops ~overlap frames per
+ * chunk. We probe LAME here so we can pre-resample with r8brain to the SAME rate
+ * LAME would have picked, keeping the 1:1 invariant intact (and getting HQ
+ * resampling for free). Returns the chosen out rate, or inRate on any failure. */
+static int ProbeLameOutRate(const EncoderConfig &cfg, int inRate) {
+    const LameEngine &e = SelectLameEngine();
+    lame_t p = e.init();
+    if (!p) return inRate;
+    e.set_in_samplerate(p, inRate);
+    e.set_num_channels(p, cfg.channels > 0 ? cfg.channels : 2);
+    if (cfg.vbrMode == vbr_off) {
+        e.set_brate(p, cfg.bitrate);
+    } else if (cfg.vbrMode == vbr_abr) {
+        e.set_VBR(p, vbr_abr);
+        e.set_VBR_mean_bitrate_kbps(p, cfg.abrBitrate);
+    } else { /* vbr_mtrh */
+        e.set_VBR(p, vbr_mtrh);
+        e.set_VBR_quality(p, cfg.vbrQuality / 10.0f);
+    }
+    if (cfg.quality >= 0) e.set_quality(p, cfg.quality);
+    int out = inRate;
+    if (e.init_params(p) >= 0) {
+        int r = e.get_out_samplerate(p);
+        if (r > 0) out = r;
+    }
+    e.close(p);
+    return out;
+}
+
 /* --------------------------------- main -------------------------------- */
 #define SUPERLAME_VERSION   "1.0"
 #define SUPERLAME_LAME_VER  "3.101 beta 3 (SVN r6531)"
@@ -1061,15 +1095,14 @@ int main(int argc, char **argv) {
     if (resampleTo > 0) {
         dstRate = NearestMp3Rate(resampleTo);           /* snap to a legal rate */
     } else {
-        /* LAME-style: pick a max sensible rate for the target bitrate. */
-        int targetKbps = cfg.vbrMode == vbr_off ? cfg.bitrate
-                       : cfg.vbrMode == vbr_abr ? cfg.abrBitrate : 0;  /* 0 = VBR: no auto */
-        int perCh = targetKbps > 0 && cfg.channels > 0 ? targetKbps / cfg.channels : 999;
-        int cap = 48000;
-        if      (perCh <= 32) cap = 24000;   /* <=64k stereo / <=32k mono */
-        else if (perCh <= 56) cap = 32000;   /* <=112k stereo */
-        if (targetKbps > 0 && wav.rate > cap) dstRate = NearestMp3Rate(cap);
-        else if (!IsLegalMp3Rate(wav.rate))   dstRate = NearestMp3Rate(wav.rate);
+        /* Ask LAME what output rate it would use for this config. This inherits
+         * LAME's exact auto-downsample decision -- for CBR/ABR *and* VBR (the
+         * high -V levels drop the rate) -- instead of approximating it. Doing the
+         * resample up-front with r8brain guarantees the SuperFast MT overlap
+         * invariant (1 input frame == 1 output frame in every worker). */
+        int lameRate = ProbeLameOutRate(cfg, wav.rate);
+        if (lameRate > 0 && lameRate != wav.rate) dstRate = NearestMp3Rate(lameRate);
+        else if (!IsLegalMp3Rate(wav.rate))       dstRate = NearestMp3Rate(wav.rate);
     }
 
     if (dstRate != wav.rate) {

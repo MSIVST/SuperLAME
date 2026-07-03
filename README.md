@@ -93,6 +93,10 @@ See `docs/BUILDING.md` for the exact fetch/patch steps.
   inputs are refused with a clear message rather than crashing.
 - Single-thread output is bit-identical to stock LAME; multi-thread differs only
   by inaudible (<-45 dB) reservoir reconciliation at chunk seams.
+- Any output that needs a lower sample rate (high `-V` levels, low CBR/ABR, or
+  `--resample`) is resampled up-front with r8brain — LAME's own per-frame
+  resampler never runs inside a worker, which keeps MT length exactly equal to
+  single-thread.
 - **FLAC limits:** the bundled dr_flac decoder handles up to 24-bit; 32-bit-per-
   sample FLAC and a few unusual streams (mid-stream sample-rate/channel changes,
   extreme Rice partition orders) are refused or partially decoded with a clear

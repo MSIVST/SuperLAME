@@ -18,6 +18,8 @@ struct LameEngine {
     const char *name;
     lame_t (*init)(void);
     int    (*set_in_samplerate)(lame_global_flags *, int);
+    int    (*set_out_samplerate)(lame_global_flags *, int);
+    int    (*get_out_samplerate)(const lame_global_flags *);
     int    (*set_num_channels)(lame_global_flags *, int);
     int    (*set_brate)(lame_global_flags *, int);
     int    (*set_quality)(lame_global_flags *, int);

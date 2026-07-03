@@ -51,6 +51,7 @@ if (gfp->quality < 4) {
 | `maikmerten-2024-07-25-cbr-abr-quality-settings-clamp.diff` | **the patch we apply (Variant B)** |
 | `maikmerten-2024-07-10-cbr-and-abr-no-noise-shaping-amp.diff` | Variant A — kept for reference / optional A/B-by-ear |
 | `maikmerten.md` | bug #516 context |
+| `superlame-id3v24-synchsafe-frame-size.diff` | **also applied** — fixes ID3v2.4 frame sizes to be synchsafe (cover-art/APIC bug); see docs/CHANGELOG.md |
 | `ffmpeg.exe` / `ffprobe.exe` | validation/decoding for regression checks |
 
 ---

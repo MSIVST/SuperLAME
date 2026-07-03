@@ -1,0 +1,142 @@
+SuperLAME: write ID3v2.4 frame sizes as synchsafe integers
+==========================================================
+
+SuperLAME emits ID3v2.4 tags (via id3tag_add_v2_4_UTF8, so UTF-8 tag text
+round-trips). It sets the tag version byte to 4 and correctly synchsafe-encodes
+the *tag* size, but stock LAME's per-frame size fields are written with a plain
+32-bit big-endian value (set_4_byte_value) -- correct for ID3v2.3, WRONG for
+ID3v2.4, where every frame size must be a 28-bit synchsafe integer.
+
+For frames < 128 bytes raw == synchsafe, so text frames (title/artist/...) were
+unaffected and the bug was latent. But a large APIC (embedded cover art, e.g. a
+~736 KB JPEG) produces a size with high bits set (e.g. 00 0B 7F F2), which
+spec-compliant parsers reject. libmpg123 reports:
+
+    ID3v2: non-syncsafe size of APIC frame, skipping the remainder of tag
+
+and strict players desync into the JPEG bytes -- audible as an MP3 that appears
+"off-time" / skips at load. The fix adds a size writer that picks synchsafe vs
+raw by tag version, and routes the four frame-size fields (comment, custom/text,
+WXXX, APIC) through it.
+
+Apply against lame-r6531/libmp3lame/id3tag.c (unified diff, -p0). Line numbers
+are approximate; the change is small and self-contained.
+
+--- libmp3lame/id3tag.c
++++ libmp3lame/id3tag.c
+@@ set_4_byte_value() -- add a synchsafe-aware frame-size writer after it
+ static unsigned char *
+ set_4_byte_value(unsigned char *bytes, uint32_t value)
+ {
+     int     i;
+     for (i = 3; i >= 0; --i) {
+         bytes[i] = value & 0xffUL;
+         value >>= 8;
+     }
+     return bytes + 4;
+ }
++
++/* Write a 4-byte ID3v2 frame *size* field.  In ID3v2.4 the size must be a
++ * 28-bit synchsafe integer (high bit of every byte clear); in ID3v2.3 it is a
++ * plain 32-bit big-endian integer.  Using the raw writer in v2.4 mode corrupts
++ * any frame >= 128 bytes (notably APIC cover art), so pick the encoding based
++ * on which tag version is being emitted. */
++static unsigned char *
++set_frame_size_value(unsigned char *bytes, uint32_t value, int is_v24)
++{
++    if (is_v24) {
++        bytes[0] = (unsigned char) ((value >> 21) & 0x7fu);
++        bytes[1] = (unsigned char) ((value >> 14) & 0x7fu);
++        bytes[2] = (unsigned char) ((value >> 7) & 0x7fu);
++        bytes[3] = (unsigned char) (value & 0x7fu);
++        return bytes + 4;
++    }
++    return set_4_byte_value(bytes, value);
++}
+
+@@ set_frame_comment(): take is_v24, use synchsafe-aware size
+-set_frame_comment(unsigned char *frame, FrameDataNode const *node)
++set_frame_comment(unsigned char *frame, FrameDataNode const *node, int is_v24)
+ {
+     size_t const n = sizeOfCommentNode(node);
+     if (n > 10) {
+         frame = set_4_byte_value(frame, node->fid);
+-        frame = set_4_byte_value(frame, (uint32_t) (n - 10));
++        frame = set_frame_size_value(frame, (uint32_t) (n - 10), is_v24);
+
+@@ set_frame_custom2(): take is_v24, use synchsafe-aware size
+-set_frame_custom2(unsigned char *frame, FrameDataNode const *node)
++set_frame_custom2(unsigned char *frame, FrameDataNode const *node, int is_v24)
+ {
+     size_t const n = sizeOfNode(node);
+     if (n > 10) {
+         frame = set_4_byte_value(frame, node->fid);
+-        frame = set_4_byte_value(frame, (unsigned long) (n - 10));
++        frame = set_frame_size_value(frame, (uint32_t) (n - 10), is_v24);
+
+@@ set_frame_wxxx(): take is_v24, use synchsafe-aware size
+-set_frame_wxxx(unsigned char *frame, FrameDataNode const *node)
++set_frame_wxxx(unsigned char *frame, FrameDataNode const *node, int is_v24)
+ {
+     size_t const n = sizeOfWxxxNode(node);
+     if (n > 10) {
+         frame = set_4_byte_value(frame, node->fid);
+-        frame = set_4_byte_value(frame, (unsigned long) (n - 10));
++        frame = set_frame_size_value(frame, (uint32_t) (n - 10), is_v24);
+
+@@ set_frame_apic(): take is_v24, use synchsafe-aware size (THE cover-art fix)
+-set_frame_apic(unsigned char *frame, const char *mimetype, const unsigned char *data, size_t size)
++set_frame_apic(unsigned char *frame, const char *mimetype, const unsigned char *data, size_t size, int is_v24)
+ {
+     if (mimetype && data && size) {
+         frame = set_4_byte_value(frame, FRAME_ID('A', 'P', 'I', 'C'));
+-        frame = set_4_byte_value(frame, (unsigned long) (4 + strlen(mimetype) + size));
++        frame = set_frame_size_value(frame, (uint32_t) (4 + strlen(mimetype) + size), is_v24);
+
+@@ lame_get_id3v2_tag(): compute is_v24 once, pass to each frame writer
+-            /* set each frame in tag */
+-            {
+-                id3tag_spec *tag = &gfc->tag_spec;
+-                if (tag->v2_head != 0) {
+-                    FrameDataNode *node;
+-                    for (node = tag->v2_head; node != 0; node = node->nxt) {
+-                        if (node->fid == ID_COMMENT || node->fid == ID_USER) {
+-                            p = set_frame_comment(p, node);
+-                        }
+-                        else if (isFrameIdMatching(node->fid,FRAME_ID('W',0,0,0))) {
+-                            p = set_frame_wxxx(p, node);
+-                        }
+-                        else {
+-                            p = set_frame_custom2(p, node);
+-                        }
+-                    }
+-                }
+-            }
+-            if (albumart_mime) {
+-                p = set_frame_apic(p, albumart_mime, gfc->tag_spec.albumart,
+-                                   gfc->tag_spec.albumart_size);
+-            }
++            /* frame size fields are synchsafe in v2.4, raw in v2.3 */
++            {
++                int const is_v24 = test_tag_spec_flags(gfc, V2_4_UTF8_FLAG) ? 1 : 0;
++                /* set each frame in tag */
++                id3tag_spec *tag = &gfc->tag_spec;
++                if (tag->v2_head != 0) {
++                    FrameDataNode *node;
++                    for (node = tag->v2_head; node != 0; node = node->nxt) {
++                        if (node->fid == ID_COMMENT || node->fid == ID_USER) {
++                            p = set_frame_comment(p, node, is_v24);
++                        }
++                        else if (isFrameIdMatching(node->fid,FRAME_ID('W',0,0,0))) {
++                            p = set_frame_wxxx(p, node, is_v24);
++                        }
++                        else {
++                            p = set_frame_custom2(p, node, is_v24);
++                        }
++                    }
++                }
++                if (albumart_mime) {
++                    p = set_frame_apic(p, albumart_mime, gfc->tag_spec.albumart,
++                                       gfc->tag_spec.albumart_size, is_v24);
++                }
++            }

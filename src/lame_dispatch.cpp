@@ -45,6 +45,8 @@ static void cpuidex(int regs[4], int leaf, int sub) {
 #define ENGINE_EXTERNS(PFX) \
   X_EXTERN(PFX, lame_t, lame_init, (void)) \
   X_EXTERN(PFX, int,    lame_set_in_samplerate, (lame_global_flags *, int)) \
+  X_EXTERN(PFX, int,    lame_set_out_samplerate, (lame_global_flags *, int)) \
+  X_EXTERN(PFX, int,    lame_get_out_samplerate, (const lame_global_flags *)) \
   X_EXTERN(PFX, int,    lame_set_num_channels, (lame_global_flags *, int)) \
   X_EXTERN(PFX, int,    lame_set_brate, (lame_global_flags *, int)) \
   X_EXTERN(PFX, int,    lame_set_quality, (lame_global_flags *, int)) \
@@ -79,7 +81,9 @@ static void cpuidex(int regs[4], int leaf, int sub) {
 
 /* table initializer list for one prefix (order matches the struct) */
 #define ENGINE_INITS(PFX) \
-  CAT(PFX, lame_init), CAT(PFX, lame_set_in_samplerate), CAT(PFX, lame_set_num_channels), \
+  CAT(PFX, lame_init), CAT(PFX, lame_set_in_samplerate), \
+  CAT(PFX, lame_set_out_samplerate), CAT(PFX, lame_get_out_samplerate), \
+  CAT(PFX, lame_set_num_channels), \
   CAT(PFX, lame_set_brate), CAT(PFX, lame_set_quality), CAT(PFX, lame_set_mode), \
   CAT(PFX, lame_set_VBR), CAT(PFX, lame_set_VBR_mean_bitrate_kbps), CAT(PFX, lame_set_VBR_quality), \
   CAT(PFX, lame_init_params), CAT(PFX, lame_get_framesize), \
