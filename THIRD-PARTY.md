@@ -25,6 +25,34 @@ terms and r8brain's MIT terms are GPL-compatible.)
 - fre:ac / SuperFast: https://www.freac.org/ , https://github.com/enzo1982/BoCA
 - LAME bug #516: https://sourceforge.net/p/lame/bugs/516/
 
+## Binary distribution (GPL compliance + MP3 patents)
+
+**You may legally distribute a compiled SuperLAME binary**, including selling it,
+under the GPL v2+. When you do, GPL/LGPL/MIT require that you:
+
+1. **Provide the complete corresponding source** for the exact binary — either
+   ship it, or include a written offer / link to it. Source lives at
+   https://github.com/MSIVST/SuperLAME (the repo must be reachable by recipients;
+   if it is private, you must supply the source another way).
+2. **Include the license texts** — bundle the `LICENSE` (GPL v2) and the
+   `licenses/` directory (LAME LGPLv2, mpg123 LGPLv2.1, r8brain MIT, dr_flac
+   PD/MIT-0) with the binary.
+3. **Preserve attribution** — keep `THIRD-PARTY.md` and the copyright notices.
+
+Because the SuperFast repacker is GPL v2+, the whole combined work is GPL — the
+LGPL components (LAME, mpg123) and permissive ones (r8brain, dr_flac) are all
+GPL-compatible, so this is straightforward: treat everything as GPL v2+.
+
+See `RELEASING.md` for a step-by-step release checklist.
+
+**MP3 patents:** the MP3 patents have **expired** — the last US/EU patents lapsed
+around 2017, and Fraunhofer/Technicolor formally ended their MP3 licensing
+program in April 2017. There is therefore **no MP3 patent royalty** for encoding
+or decoding in the major jurisdictions today. (LAME historically shipped
+source-only and warned about MP3 patents; that warning is now obsolete, which is
+why Linux distributions freely ship MP3 encoders again.) This is not legal
+advice; if you distribute into an unusual jurisdiction, confirm local patent law.
+
 ## Resampling quality (why r8brain, and which settings)
 
 SuperLAME resamples non-MP3 input rates (e.g. 96/88.2 kHz hi-res) with
