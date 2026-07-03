@@ -1,6 +1,9 @@
 /* superlame-mt: static member definitions for mp3::FrameCRC, plus the
  * Xing/Info-tag "music CRC" which is CRC-16/ARC (poly 0x8005, init 0x0000,
- * input+output reflected, no final xor) -- matching smooth's Hash::CRC16. */
+ * input+output reflected, no final xor) -- matching smooth's Hash::CRC16.
+ *
+ * The frame-CRC / CRC-16 approach follows fre:ac/BoCA/smooth, (C) Robert
+ * Kausch, GPL v2+. */
 #include "mp3frame.h"
 
 namespace mp3 {
