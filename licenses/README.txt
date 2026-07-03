@@ -21,6 +21,15 @@ source URLs.
     combined work is GPL v2 or later. The LGPL/MIT/public-domain terms of the
     other components are all compatible with GPL v2+.
 
+Project homepages
+-----------------
+  LAME              https://lame.sourceforge.io/
+  mpg123            https://www.mpg123.de/
+  r8brain-free-src  https://github.com/avaneev/r8brain-free-src
+  dr_flac (dr_libs) https://github.com/mackron/dr_libs
+  fre:ac / SuperFast https://www.freac.org/  |  https://github.com/enzo1982/BoCA
+  LAME bug #516     https://sourceforge.net/p/lame/bugs/516/
+
 Source availability
 -------------------
 The GPL requires that the complete corresponding source for this binary be

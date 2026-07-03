@@ -121,7 +121,12 @@ benchmarked on real hardware.
 
 ## License
 
-**GPL v2 or later.** This combines LAME (LGPL), mpg123 (LGPL), r8brain (MIT),
-dr_flac (public domain / MIT-0), and code derived from fre:ac/BoCA SuperFast
+**GPL v2 or later.** This combines
+[LAME](https://lame.sourceforge.io/) (LGPL),
+[mpg123](https://www.mpg123.de/) (LGPL),
+[r8brain-free-src](https://github.com/avaneev/r8brain-free-src) (MIT),
+[dr_flac](https://github.com/mackron/dr_libs) (public domain / MIT-0), and code
+derived from [fre:ac / BoCA SuperFast](https://github.com/enzo1982/BoCA)
 (GPL v2+); the combined work is GPL. See [LICENSE](LICENSE) and
-[THIRD-PARTY.md](THIRD-PARTY.md).
+[THIRD-PARTY.md](THIRD-PARTY.md) for full details and per-component license
+texts (in [`licenses/`](licenses/)).
