@@ -646,7 +646,7 @@ static void usage(const char *prog) {
     printf("    stereo, any sample rate. Use \"-\" for stdin/stdout.\n");
     printf("\n");
     printf("RECOMMENDED:\n");
-    printf("    superlame-mt -V2 -t0 input.wav output.mp3      (VBR, all cores)\n");
+    printf("    %s -V2 -t0 input.wav output.mp3      (VBR, all cores)\n", prog);
     printf("\n");
     printf("OPTIONS:\n");
     printf("    -b n            CBR bitrate in kbps (default 192)\n");
@@ -705,10 +705,14 @@ static void longhelp(const char *prog) {
     printf("    so output is always valid.\n");
     printf("\n");
     printf("CPU ENGINE:\n");
-    printf("    One binary contains two libmp3lame builds, chosen by CPUID:\n");
-    printf("      znver3 (AVX2/FMA)  -- AMD Zen 3 and any AVX2+FMA+BMI2 CPU\n");
-    printf("      x86-64 (SSE2)      -- generic fallback for older CPUs\n");
-    printf("    Override for testing: set env  SUPERLAME_ENGINE=sse2|znver3\n");
+    printf("    One binary contains four libmp3lame builds, chosen by CPUID:\n");
+    printf("      znver5 (AVX-512)   -- AMD Zen 5 (built but UNVERIFIED, no host)\n");
+    printf("      znver4 (AVX-512)   -- any AVX-512 CPU  (built but UNVERIFIED)\n");
+    printf("      znver3 (AVX2/FMA)  -- AMD Zen 3 and any AVX2+FMA+BMI2 CPU (tested)\n");
+    printf("      x86-64 (SSE2)      -- generic fallback for older CPUs (tested)\n");
+    printf("    Intel CPUs are supported: they run the matching engine (AVX-512 ->\n");
+    printf("    znver4, mainstream -> znver3, older -> SSE2); znver5 is AMD-only.\n");
+    printf("    Override for testing: set env  SUPERLAME_ENGINE=sse2|znver3|znver4|znver5\n");
     printf("\n");
     printf("THE q4 QUALITY FIX (LAME bug #516):\n");
     printf("    Under LAME's current psymodel, CBR/ABR at -q 0..3 degrades quality.\n");
@@ -776,7 +780,7 @@ static void license() {
     printf("  Components:\n");
     printf("    LAME      https://lame.sourceforge.io/\n");
     printf("    mpg123    https://www.mpg123.de/\n");
-    printf("    SuperFast https://www.freac.org/  (github.com/enzo1982/superfast)\n");
+    printf("    SuperFast https://www.freac.org/  (github.com/enzo1982/BoCA)\n");
     printf("    bug #516  https://sourceforge.net/p/lame/bugs/516/\n");
 }
 
