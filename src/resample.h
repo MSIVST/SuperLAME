@@ -6,8 +6,12 @@
  * LAME's own (per-frame, stateful) resampler never engages. That avoids the
  * chunk-boundary drift you get when resampling happens inside the workers.
  *
- * r8brain is high quality (linear-phase, ~200 dB stopband) -- better than LAME's
- * internal Blackman-sinc, so hi-res input is handled cleanly. */
+ * We use CDSPResampler24 at its defaults: ~207 dB stop-band, 2% transition band,
+ * linear phase. That is reference-grade -- better than LAME's internal Blackman-
+ * sinc, and transparent by a large margin *before* MP3 quantization, so the
+ * encoder (not the resampler) is the quality bottleneck. See THIRD-PARTY.md
+ * ("Resampling quality") for the full rationale and the linear-vs-minimum-phase
+ * / 24-vs-16-bit trade-offs. */
 #ifndef SUPERLAME_RESAMPLE_H
 #define SUPERLAME_RESAMPLE_H
 
