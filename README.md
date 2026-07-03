@@ -103,6 +103,14 @@ See `docs/BUILDING.md` for the exact fetch/patch steps.
 
 See `docs/` for measured results.
 
+## Support
+
+Provided **as-is, best-effort** — no warranty and no support guarantee. Bug
+reports and PRs are welcome; please read [CONTRIBUTING.md](CONTRIBUTING.md) first
+(it lists known/intentional limits worth checking before filing). If you have a
+**Zen 4/5** CPU, reports on the AVX-512 engines are especially useful — those
+tiers are built but unverified.
+
 ## License
 
 **GPL v2 or later.** This combines LAME (LGPL), mpg123 (LGPL), r8brain (MIT),

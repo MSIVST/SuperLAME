@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Support policy & known limits
+    url: https://github.com/MSIVST/SuperLAME/blob/master/CONTRIBUTING.md
+    about: This is a best-effort, no-warranty project. Please read the known/intentional limits before filing.
