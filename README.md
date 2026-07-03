@@ -19,6 +19,13 @@ format support, high-quality resampling, and ID3 tagging.
   `znver5`, `znver4` (AVX-512), `znver3` (AVX2/FMA) and generic `x86-64` (SSE2) —
   chosen at runtime by CPUID. (`znver4`/`znver5` are built but **unverified** —
   no Zen 4/5 host was available to test them; `znver3` and SSE2 are tested.)
+  **Intel CPUs are supported:** the engines emit standard AVX-512 / AVX2+FMA+BMI2
+  / SSE2 instructions (Intel's too), so an Intel chip runs the matching engine —
+  AVX-512 Intel → the AVX-512 engine, mainstream Intel → the AVX2 engine, older →
+  SSE2. The Zen 5-tuned engine is AMD-only by design and never selected on Intel.
+  The engines are AMD-*tuned*, so on Intel they run correctly but a few percent
+  below Intel-specific tuning. (Reasoned from the ISA + dispatch logic; not yet
+  benchmarked on a physical Intel box — Intel reports welcome.)
 - **Decoder:** MP3 → WAV via built-in libmpg123 (`--decode`).
 - **Input:** WAV (PCM 8/16/24/32-bit + 32/64-bit float), AIFF (16/24-bit), and
   FLAC (up to 24-bit, **multithreaded decode**), mono/stereo, any sample rate;
@@ -108,8 +115,9 @@ See `docs/` for measured results.
 Provided **as-is, best-effort** — no warranty and no support guarantee. Bug
 reports and PRs are welcome; please read [CONTRIBUTING.md](CONTRIBUTING.md) first
 (it lists known/intentional limits worth checking before filing). If you have a
-**Zen 4/5** CPU, reports on the AVX-512 engines are especially useful — those
-tiers are built but unverified.
+**Zen 4/5 or an Intel** CPU, reports are especially useful: the AVX-512 engines
+are built but unverified, and Intel is supported-by-design but not yet
+benchmarked on real hardware.
 
 ## License
 
