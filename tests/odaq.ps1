@@ -13,7 +13,7 @@
 $ErrorActionPreference = "Continue"
 # Repo root holding the built exe + test corpora. Override with SUPERLAME_ROOT.
 $Root = if ($env:SUPERLAME_ROOT) { $env:SUPERLAME_ROOT } else { Split-Path -Parent $PSScriptRoot }
-$exe = "$Root\build\final\SuperLAME-1.0.exe"
+$exe = "$Root\build\final\superlame-mt.exe"
 $ff  = "$Root\ffmpeg.exe"
 $odaq = "$Root\ODAQ (Open Dataset of Audio Quality)"
 $work = "$Root\build\odaqwork"

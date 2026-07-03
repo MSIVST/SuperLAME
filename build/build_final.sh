@@ -6,10 +6,7 @@
 # r8brain/, and build/). Override by exporting ROOT. The frontend source dir is
 # $MT (defaults to $ROOT/superlame-mt).
 set -u
-# Default ROOT to the repo's parent (deps sit alongside the checkout); override
-# by exporting ROOT. $MT is the frontend source dir (defaults to $ROOT/superlame-mt,
-# i.e. this repo's src/ if you symlink or point MT at it).
-ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+ROOT="${ROOT:-/c/.Claude_LAMEsf}"
 MT="${MT:-$ROOT/superlame-mt}"
 LAMEINC="$ROOT/lame-r6531/include"
 MPG123LIB="$ROOT/build/mpg123-cmake/src/libmpg123/mpg123.lib"
@@ -55,7 +52,7 @@ else
   echo "  [res] llvm-rc not found; building without icon"
 fi
 
-EXENAME="SuperLAME-1.0.exe"
+EXENAME="SuperLAME-1.0.1.exe"
 echo "=== Linking $EXENAME (both engines) ==="
 SYSLIBS="-lshlwapi -lshell32 -Xlinker /nodefaultlib:libucrt.lib -Xlinker /nodefaultlib:libcmt.lib"
 clang++ $CXXFLAGS "$OUT"/mp3frame.o "$OUT"/repacker.o "$OUT"/worker.o "$OUT"/main.o "$OUT"/lame_dispatch.o "$OUT"/dr_flac_impl.o $RESOBJ \

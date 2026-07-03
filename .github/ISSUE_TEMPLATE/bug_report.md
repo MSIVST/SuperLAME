@@ -14,7 +14,7 @@ known and intentional.
 
 ## Command line
 ```
-SuperLAME-1.0.exe ...your exact command...
+SuperLAME.exe ...your exact command...
 ```
 
 ## Console output
@@ -29,4 +29,4 @@ SuperLAME-1.0.exe ...your exact command...
 ## System
 - CPU (so I know which engine ran):
 - OS / version:
-- SuperLAME version (`SuperLAME-1.0.exe --version`):
+- SuperLAME version (`SuperLAME --version`):

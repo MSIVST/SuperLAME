@@ -45,7 +45,7 @@ format support, high-quality resampling, and ID3 tagging.
 ## Usage
 
 ```
-SuperLAME-1.0 [options] <infile> [outfile.mp3]
+SuperLAME-1.0.1 [options] <infile> [outfile.mp3]
 
   -b n            CBR bitrate (kbps)
   --abr n         ABR (average) bitrate
@@ -61,7 +61,7 @@ SuperLAME-1.0 [options] <infile> [outfile.mp3]
   --version --about --features --longhelp --license
 ```
 
-Run `SuperLAME-1.0 --longhelp` for the full listing.
+Run `SuperLAME-1.0.1 --longhelp` for the full listing.
 
 ## Building
 
