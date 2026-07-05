@@ -465,11 +465,14 @@ int SuperEncoder::EncodeFrames(bool flush) {
 
     if (flush) framesToProcess = (int) std::floor((double) bufSamples / samplesPerFrame);
 
-    /* Degenerate input: fewer than one full frame buffered. Don't run the
-     * parallel block loop (its overlap math goes negative and the memmove
-     * underflows). On flush, hand the leftover (possibly 0) straight to one
-     * worker with the flush flag so the encoder emits its final frame cleanly. */
-    if (framesToProcess <= 0) {
+    /* Degenerate input: fewer than one full frame buffered -- or, on flush,
+     * fewer than `overlap` full frames in total. The parallel block loop's
+     * accounting (`framesProcessed += framesToProcess - overlap`) goes
+     * negative in both cases and the memmove below underflows (heap
+     * corruption; a 1..overlap-1 frame input crashed MT encodes). Hand the
+     * leftover (possibly 0) straight to one worker with the flush flag so the
+     * encoder emits its final frames cleanly. */
+    if (framesToProcess <= 0 || (flush && framesToProcess < overlap)) {
         if (flush) {
             SuperWorker *w0 = workers[nextWorker % workers.size()];
             while (!w0->IsReady()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -965,7 +968,7 @@ int main(int argc, char **argv) {
         FILE *wf = open_utf8(outPath, "wb");
 #endif
         if (!wf || !WriteWav(wf, pcm, rate, channels)) { if (wf) fclose(wf); fprintf(stderr, "write failed: %s\n", outPath); return 1; }
-        fclose(wf);
+        if (fclose(wf) != 0) { fprintf(stderr, "write failed: %s\n", outPath); return 1; }
 
         if (!quiet) {
             double secs  = std::chrono::duration<double>(td1 - td0).count();
@@ -1055,7 +1058,11 @@ int main(int argc, char **argv) {
         std::vector<unsigned char> art;
         const char *artSource = nullptr;
         if (coverPath) {
+#ifdef _WIN32
             FILE *cf = open_utf8(coverPath, L"rb");
+#else
+            FILE *cf = open_utf8(coverPath, "rb");
+#endif
             if (!cf) { fprintf(stderr, "cannot open album-art file: %s\n", coverPath); return 1; }
             int64_t asz = FileSize64(cf);
             if (asz > 0) { art.resize((size_t) asz);
@@ -1095,6 +1102,12 @@ int main(int argc, char **argv) {
      *      lower sample rate sounds better than a bandwidth-starved high rate
      *   3. illegal input rate           nearest legal MP3 rate
      * Otherwise the input rate is kept as-is. */
+    /* Bind the probe to the REAL channel count first: LAME's auto-downsample
+     * decision differs sharply between mono and stereo (e.g. CBR 96 kbps:
+     * stereo -> 32 kHz, mono -> 44.1 kHz). Probing with the default stereo
+     * config needlessly downsampled mono files. */
+    cfg.channels = wav.channels;
+
     int dstRate = wav.rate;
     if (resampleTo > 0) {
         dstRate = NearestMp3Rate(resampleTo);           /* snap to a legal rate */
@@ -1152,7 +1165,7 @@ int main(int argc, char **argv) {
         else
             printf("Encoding as %.3g kHz %s MPEG-1 Layer III (%.1fx) %s %d kbps qval=%d\n",
                    cfg.rate / 1000.0, stereoName(cfg.stereoMode), ratio, modeName(cfg.vbrMode),
-                   cfg.vbrMode == vbr_off ? cfg.bitrate : cfg.abrBitrate, effQ < 0 ? 3 : effQ);
+                   cfg.vbrMode == vbr_off ? cfg.bitrate : cfg.abrBitrate, effQ < 0 ? 4 : effQ);
         if (clamped)
             printf("CBR/ABR: -q %d clamped to 4 (bug #516 quality fix)\n", cfg.quality);
         printf("Frame size: %d samples   Input: %d samples (%.2f s)%s\n",
@@ -1168,6 +1181,15 @@ int main(int argc, char **argv) {
         printf("Encoding %s -> %s : %.3g kHz %s, %s, %d thread(s), %s\n",
                inPath, outPath, cfg.rate / 1000.0, stereoName(cfg.stereoMode),
                rate, numThreads, SelectLameEngine().name);
+    }
+
+    /* The encoder API carries sample counts as int; a >2^31-sample input (a
+     * very long FLAC/float source on a big-RAM machine) would overflow the
+     * casts below and abort inside vector::resize without a message. */
+    if (wav.count() > (size_t) INT_MAX) {
+        fprintf(stderr, "error: input has %zu samples; this build supports at most %d.\n"
+                "Split the input into shorter pieces.\n", wav.count(), INT_MAX);
+        return 1;
     }
 
     auto t0 = std::chrono::steady_clock::now();
@@ -1190,11 +1212,16 @@ int main(int argc, char **argv) {
         /* Always report on stderr (even with --quiet): a desync is a real event
          * worth surfacing, and lets test harnesses detect it without decoding. */
         fprintf(stderr, "note: repacker produced an invalid frame; re-encoding single-threaded for a clean stream...\n");
-        MemDriver clean;
-        SuperEncoder st(cfg, &clean, 1);
-        st.WriteData(wav.data(), (int) wav.count());
-        st.Finish();
-        driver = std::move(clean);
+        try {
+            MemDriver clean;
+            SuperEncoder st(cfg, &clean, 1);
+            st.WriteData(wav.data(), (int) wav.count());
+            st.Finish();
+            driver = std::move(clean);
+        } catch (const std::bad_alloc &) {
+            fprintf(stderr, "error: out of memory during encoding (file too large for available RAM).\n");
+            return 1;
+        }
     }
     auto t1 = std::chrono::steady_clock::now();
 
@@ -1214,7 +1241,9 @@ int main(int argc, char **argv) {
         if (!id3v2.empty()) wrote = wrote && fwrite(id3v2.data(), 1, id3v2.size(), of) == id3v2.size();
         wrote = wrote && driver.WriteToFILE(of);
         if (!id3v1.empty()) wrote = wrote && fwrite(id3v1.data(), 1, id3v1.size(), of) == id3v1.size();
-        if (toStdout) fflush(of); else fclose(of);
+        /* A full disk can surface only at the final flush/close. */
+        if (toStdout) wrote = wrote && fflush(of) == 0;
+        else          wrote = wrote && fclose(of) == 0;
     }
     if (!wrote) { fprintf(stderr, "write failed: %s\n", outPath); return 1; }
 

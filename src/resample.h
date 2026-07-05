@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <thread>
 #include <algorithm>
+#include <numeric>
 
 inline bool IsLegalMp3Rate(int r) {
     switch (r) {
@@ -72,6 +73,13 @@ inline std::vector<double> ResampleChannel(const std::vector<double> &in,
      * corresponding input span plus guard on both sides, then keeps only its
      * portion. guard >> filter length (a few thousand taps at most). */
     const long long guard = 8192;
+    /* Each segment's output grid aligns with the global grid only when its
+     * input start i0 satisfies (i0 * dstRate) % srcRate == 0; otherwise the
+     * whole chunk lands sub-sample time-shifted (up to -13 dBFS error at
+     * non-integer ratios like 44100<->48000, with a discontinuity at every
+     * seam). Snap i0 down to a multiple of srcRate/gcd so padOutStart below
+     * is exact. Integer-family ratios (2:1/4:1/8:1) were already aligned. */
+    const long long step = srcRate / std::gcd(srcRate, dstRate);
     int chunks = nThreads;
     std::vector<double> out((size_t) outN);
     std::vector<std::thread> pool;
@@ -85,6 +93,7 @@ inline std::vector<double> ResampleChannel(const std::vector<double> &in,
             long long i0 = o0 * srcRate / dstRate - guard;
             long long i1 = o1 * srcRate / dstRate + guard;
             if (i0 < 0)   i0 = 0;
+            i0 -= i0 % step;                 /* exact-alignment grid (see above) */
             if (i1 > inN) i1 = inN;
             long long segIn = i1 - i0;
 

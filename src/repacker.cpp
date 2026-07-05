@@ -33,6 +33,17 @@ bool SuperRepacker::EnableRateControl(int minRate, int maxRate) {
 bool SuperRepacker::UpdateInfoTag(std::vector<u8> &frame, int64_t totalSamples) const {
     if ((int) frame.size() < 169) return false;
 
+    /* SuperLAME hardening (not in BoCA): 169 only covers the smallest
+     * side-info layout (MPEG-2 mono, tag end 4+9+0x9C). With larger side info
+     * the LAME extension ends at 4 + sideInfo + 0x9C -- past the frame for
+     * small CBR frames (e.g. 56 kbps stereo 44.1 = 182 bytes < 192). Pad with
+     * scratch zeros so the field patches below stay in bounds, then trim back:
+     * the emitted frame (the first `written` bytes) is unchanged, and fields
+     * that don't fit are dropped exactly like LAME's own small-frame tag. */
+    const size_t written = frame.size();
+    const size_t needed  = (size_t) 4 + GetSideInfoLength(frame.data()) + 0x9C;
+    if (frame.size() < needed) frame.resize(needed, 0);
+
     u8 *tag = frame.data() + 4 + GetSideInfoLength(frame.data());
 
     /* Set frame count (minus this info frame). */
@@ -84,6 +95,8 @@ bool SuperRepacker::UpdateInfoTag(std::vector<u8> &frame, int64_t totalSamples) 
     unsigned short tagCRC = MusicCRC16(frame.data(), 4 + GetSideInfoLength(frame.data()) + 0x9A, 0x0000);
     tag[0x9A] = tagCRC >> 8;
     tag[0x9B] = tagCRC & 0xFF;
+
+    if (frame.size() != written) frame.resize(written);   /* drop scratch tail */
 
     return true;
 }

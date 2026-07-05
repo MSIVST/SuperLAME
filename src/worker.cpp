@@ -60,7 +60,15 @@ SuperWorker::SuperWorker(const EncoderConfig &config, int iOverlap) {
 }
 
 SuperWorker::~SuperWorker() {
-    if (thread) { delete thread; thread = nullptr; }
+    if (thread) {
+        /* If the owner never ran Quit()+Wait() (e.g. an exception is unwinding
+         * the encoder mid-run), stop and join here first -- deleting a
+         * joinable std::thread calls std::terminate, which used to abort the
+         * process before the caller's error message could print. */
+        Quit();
+        if (thread->joinable()) thread->join();
+        delete thread; thread = nullptr;
+    }
     eng->close(context);
 }
 

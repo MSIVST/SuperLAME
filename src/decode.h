@@ -62,20 +62,27 @@ inline bool DecodeMp3(const std::vector<unsigned char> &mp3,
     return true;
 }
 
-/* Write a canonical 16-bit PCM WAV from interleaved samples. */
+/* Write a canonical 16-bit PCM WAV from interleaved samples. Returns false if
+ * any write fails (e.g. disk full) or the audio exceeds RIFF's 32-bit sizes. */
 inline bool WriteWav(FILE *f, const std::vector<short> &pcm, long rate, int channels) {
     if (!f) return false;
+    if (pcm.size() > (0xFFFFFFFFu - 44) / sizeof(short)) {
+        fprintf(stderr, "decoded audio is too large for a WAV container (>4 GB)\n");
+        return false;
+    }
     uint32_t dataBytes = (uint32_t) (pcm.size() * sizeof(short));
     uint32_t byteRate  = (uint32_t) (rate * channels * 2);
     uint16_t blockAlign = (uint16_t) (channels * 2);
-    auto w32 = [&](uint32_t v) { unsigned char b[4] = { (unsigned char)v,(unsigned char)(v>>8),(unsigned char)(v>>16),(unsigned char)(v>>24) }; fwrite(b,1,4,f); };
-    auto w16 = [&](uint16_t v) { unsigned char b[2] = { (unsigned char)v,(unsigned char)(v>>8) }; fwrite(b,1,2,f); };
-    fwrite("RIFF", 1, 4, f);  w32(36 + dataBytes);  fwrite("WAVE", 1, 4, f);
-    fwrite("fmt ", 1, 4, f);  w32(16);  w16(1);  w16((uint16_t) channels);
+    bool ok = true;
+    auto w32 = [&](uint32_t v) { unsigned char b[4] = { (unsigned char)v,(unsigned char)(v>>8),(unsigned char)(v>>16),(unsigned char)(v>>24) }; ok = ok && fwrite(b,1,4,f) == 4; };
+    auto w16 = [&](uint16_t v) { unsigned char b[2] = { (unsigned char)v,(unsigned char)(v>>8) }; ok = ok && fwrite(b,1,2,f) == 2; };
+    auto tag = [&](const char *s) { ok = ok && fwrite(s,1,4,f) == 4; };
+    tag("RIFF");  w32(36 + dataBytes);  tag("WAVE");
+    tag("fmt ");  w32(16);  w16(1);  w16((uint16_t) channels);
     w32((uint32_t) rate);  w32(byteRate);  w16(blockAlign);  w16(16);
-    fwrite("data", 1, 4, f);  w32(dataBytes);
-    fwrite(pcm.data(), 1, dataBytes, f);
-    return true;
+    tag("data");  w32(dataBytes);
+    ok = ok && fwrite(pcm.data(), 1, dataBytes, f) == dataBytes;
+    return ok;
 }
 
 #endif

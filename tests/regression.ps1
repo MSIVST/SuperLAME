@@ -112,6 +112,53 @@ foreach ($m in @($modes[1], $modes[3])) {  # CBR320, VBR2
     Check "$($m.n): duration ~5.0s (got $([math]::Round($dur,3))s)" ([math]::Abs($dur - 5.0) -lt 0.1)
 }
 
+Write-Host "`n=== F) Tiny-input MT robustness (flush/overlap regression) ===" -ForegroundColor Cyan
+# Inputs holding 1..overlap-1 full MP3 frames used to corrupt the heap in MT
+# mode (EncodeFrames' flush accounting went negative). 1152/2304/3456 samples
+# cover the MPEG-1 window (overlap 4); 2880 @ 22.05 kHz covers MPEG-2 (overlap 8).
+$tinyCases = @(
+    @{n="1frame@44k";  rate=44100; samples=1152},
+    @{n="2frames@44k"; rate=44100; samples=2304},
+    @{n="3frames@44k"; rate=44100; samples=3456},
+    @{n="5frames@22k"; rate=22050; samples=2880}
+)
+foreach ($t in $tinyCases) {
+    $w = "$work\tiny_$($t.n).wav"
+    & $ff -hide_banner -loglevel error -f lavfi -i "sine=frequency=440:sample_rate=$($t.rate)" `
+        -af "atrim=end_sample=$($t.samples)" -ac 2 -c:a pcm_s16le $w -y 2>$null
+    $o = "$work\tiny_$($t.n).mp3"
+    & $exe --quiet -t 8 $w $o 2>$null | Out-Null
+    $ok = ($LASTEXITCODE -eq 0) -and (Test-Path $o) -and ((DecodeErrors $o) -eq 0)
+    Check "$($t.n): MT encode of $($t.samples)-sample input succeeds + decodes clean" $ok
+}
+
+Write-Host "`n=== G) Non-integer-ratio resample seam integrity ===" -ForegroundColor Cyan
+# The chunked r8brain resampler must align every chunk's output grid exactly.
+# Misalignment (any non-integer ratio, e.g. 44.1k->48k) shifts whole chunks by
+# a sub-sample offset: ~-30 dB RMS vs a reference resample. Fixed builds read
+# encoder noise only (~-95 dB on a pure tone at CBR 320).
+$tone8 = "$work\tone8s_44k.wav"
+& $ff -hide_banner -loglevel error -f lavfi -i "sine=frequency=997:sample_rate=44100:duration=8" `
+    -ac 2 -c:a pcm_s16le $tone8 -y 2>$null
+$o48   = "$work\seam_48.mp3"
+& $exe --quiet -t 8 -b 320 --resample 48 $tone8 $o48 2>$null | Out-Null
+$ref48 = "$work\seam_ref48.wav"
+& $ff -hide_banner -loglevel error -i $tone8 -af "aresample=48000" -c:a pcm_s16le $ref48 -y 2>$null
+$d = DiffRMS $o48 $ref48
+$val = if ($d -eq "-inf") { -999 } else { [double]$d }
+Check "44.1k->48k MT resample matches reference <= -50dB (got $d dB)" ($val -le -50)
+
+Write-Host "`n=== H) Auto-rate decision honors channel count ===" -ForegroundColor Cyan
+# LAME keeps mono at 44.1 kHz at CBR 96 but downsamples stereo to 32 kHz; the
+# probe must see the real channel count (a defaulted-stereo probe downsampled
+# mono files needlessly).
+function OutRate($mp3) { return [int](& $fp -hide_banner -loglevel error -show_entries stream=sample_rate -of csv=p=0 $mp3 2>$null) }
+$om = "$work\rate_mono96.mp3"; $os = "$work\rate_stereo96.mp3"
+& $exe --quiet -t 8 -b 96 $wavs["mono"]    $om 2>$null | Out-Null
+& $exe --quiet -t 8 -b 96 $wavs["complex"] $os 2>$null | Out-Null
+Check "mono   CBR96 keeps 44100 Hz (got $(OutRate $om))"        ((OutRate $om) -eq 44100)
+Check "stereo CBR96 downsamples to 32000 Hz (got $(OutRate $os))" ((OutRate $os) -eq 32000)
+
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host ("RESULT: $pass passed, $fail failed") -ForegroundColor $(if ($fail -eq 0) {"Green"} else {"Red"})
 exit $fail
