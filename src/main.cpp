@@ -626,7 +626,7 @@ static int ProbeLameOutRate(const EncoderConfig &cfg, int inRate) {
 }
 
 /* --------------------------------- main -------------------------------- */
-#define SUPERLAME_VERSION   "1.0.1"
+#define SUPERLAME_VERSION   "1.0.2"
 #define SUPERLAME_LAME_VER  "3.101 beta 3 (SVN r6531)"
 #define SUPERLAME_MPG123    "1.33.6"
 

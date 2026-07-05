@@ -3,7 +3,7 @@
 *A thorough description of what this project is, how it works internally, and
 everything a new maintainer needs to build, test, release, and extend it.*
 
-Version at time of writing: **1.0.1** · Repo: <https://github.com/MSIVST/SuperLAME>
+Version at time of writing: **1.0.2** · Repo: <https://github.com/MSIVST/SuperLAME>
 
 ---
 
@@ -182,7 +182,7 @@ bash build/build_dispatch.sh   # compiles libmp3lame 4× (one per CPU tier),
 bash build/build_final.sh      # compiles the frontend (+ dr_flac) and links ONE
                                # binary with all four engines + mpg123 + r8brain
 ```
-Output: `build/final/SuperLAME-1.0.1.exe` (a stable `superlame-mt.exe` copy is
+Output: `build/final/SuperLAME-1.0.2.exe` (a stable `superlame-mt.exe` copy is
 also written for the test scripts to reference).
 
 **Build-tree dependency to know:** `build_dispatch.sh` reads
@@ -203,8 +203,9 @@ default to the repo root) and invoke `build/final/superlame-mt.exe`.
 | `fuzz_input.ps1` | Malformed WAV/AIFF/MP3/FLAC input fuzzing (truncation, bit-flip, random+magic) |
 | `sqam.ps1` / `scaling.ps1` | EBU SQAM quality + core-scaling benchmarks |
 
-**Current status (v1.0.1):** regression **28/28**, ODAQ **PASS** (worst −59 dB),
-FLAC conformance **0 crashes**, fuzz clean.
+**Current status (v1.0.2):** regression **35/35** (28 original + tiny-input MT,
+resample-seam and rate-decision regressions added in 1.0.2), ODAQ **PASS**
+(worst −59 dB), FLAC conformance **0 crashes**, fuzz clean.
 
 **Benchmark gotcha:** files < ~300 MB become fully cache-resident and give flat,
 misleading scaling timings. Use a large first-touch input (e.g. a 440 MB album).
@@ -251,6 +252,18 @@ misleading scaling timings. Use a large first-touch input (e.g. a 440 MB album).
   art produced a size with high bits set → strict parsers reject the tag and
   desync. Fix: synchsafe frame sizes in v2.4 mode
   (`patches/superlame-id3v24-synchsafe-frame-size.diff`).
+- **MT encode of sub-overlap inputs crashed** (fixed 1.0.2): a 1..overlap-1
+  frame input made `EncodeFrames`' flush accounting go negative → memmove heap
+  corruption. Such inputs now take the degenerate single-worker path.
+- **Chunked resampler misaligned seams at non-integer ratios** (fixed 1.0.2):
+  each parallel chunk landed sub-sample time-shifted (up to −13 dBFS error at
+  44.1→16 kHz; −26 dBFS at 44.1↔48). Integer-family ratios were exact, hiding
+  it from the hi-res corpora. Fix: snap each chunk's input start to
+  `srcRate/gcd(srcRate,dstRate)`.
+- **Mono inputs got the stereo auto-downsample decision** (fixed 1.0.2): the
+  LAME rate probe ran before `cfg.channels` was bound (mono CBR 96 was cut to
+  32 kHz; LAME keeps mono at 44.1 kHz). See `docs/CHANGELOG.md` for the full
+  1.0.2 list including robustness fixes.
 
 ---
 
@@ -294,7 +307,7 @@ Version lives in 3 places (bump together): `SUPERLAME_VERSION` in `main.cpp`,
 - **Public** at <https://github.com/MSIVST/SuperLAME> (owner: `MSIVST`).
 - Issues **on**, with a support policy in `CONTRIBUTING.md` (best-effort, no
   warranty). Bug-report + config issue templates in `.github/ISSUE_TEMPLATE/`.
-- Latest release: **v1.0.1** (binary + source zips attached).
+- Latest release: **v1.0.2** (binary + source zips attached).
 - `.gitattributes` enforces LF for sources, CRLF for `.ps1`.
 
 ### What's in the repo vs. what's fetched
