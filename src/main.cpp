@@ -634,50 +634,55 @@ static int ProbeLameOutRate(const EncoderConfig &cfg, int inRate) {
  * version prominently, with the underlying LAME lineage in parentheses. (LAME's
  * own version string is kept intact everywhere it matters -- the MP3 Xing/Info
  * tag still reports LAME %s so players and analysers see the true encoder.) */
-static void banner() {
-    printf("SuperLAME %s 64bits (SuperFast LAME %s + libmpg123 %s)\n",
-           SUPERLAME_VERSION, SUPERLAME_LAME_VER, SUPERLAME_MPG123);
+/* Help/info commands print it to stdout; at encode time it goes to stderr so
+ * the MP3 stream can own stdout (same split as stock LAME). */
+static void banner(FILE *f = stdout) {
+    fprintf(f, "SuperLAME %s 64bits (SuperFast LAME %s + libmpg123 %s)\n",
+            SUPERLAME_VERSION, SUPERLAME_LAME_VER, SUPERLAME_MPG123);
 }
 
-static void usage(const char *prog) {
-    banner();
-    printf("\n");
-    printf("usage: %s [options] <infile> [outfile.mp3]\n", prog);
-    printf("\n");
-    printf("    <infile> is WAV (PCM 8/16/24/32-bit or 32/64-bit float), AIFF\n");
-    printf("    (16/24-bit) or FLAC (any bit depth, multithreaded decode), mono or\n");
-    printf("    stereo, any sample rate. Use \"-\" for stdin/stdout.\n");
-    printf("\n");
-    printf("RECOMMENDED:\n");
-    printf("    %s -V2 -t0 input.wav output.mp3      (VBR, all cores)\n", prog);
-    printf("\n");
-    printf("OPTIONS:\n");
-    printf("    -b n            CBR bitrate in kbps (default 192)\n");
-    printf("    --abr n         ABR (average) bitrate in kbps\n");
-    printf("    -V n            VBR quality 0..9  (0=best/biggest, 9=smallest)\n");
-    printf("    --preset p      medium / standard / extreme / insane, or 8..320 (ABR)\n");
-    printf("    --resample f    output sample rate in kHz or Hz (default: automatic)\n");
-    printf("    -q n            encoder quality 0..9 (slow..fast)\n");
-    printf("                    NOTE: clamped to >=4 for CBR/ABR (bug #516 q4 fix)\n");
-    printf("    -m mode         stereo mode: a=auto  s=stereo  m=mono  j=joint\n");
-    printf("    -t n            worker threads (0 or omitted = all CPU threads)\n");
-    printf("    -v, --verbose   print encoding configuration and a timing summary\n");
-    printf("    --quiet         suppress the banner and progress output\n");
-    printf("\n");
-    printf("    --decode        decode an MP3 to WAV (input=mp3, output=wav)\n");
-    printf("\n");
-    printf("  ID3 tags:\n");
-    printf("    --tt title      --ta artist     --tl album\n");
-    printf("    --ty year       --tc comment    --tn track[/total]\n");
-    printf("    --tg genre      --ti file.jpg   (album art: JPEG/PNG)\n");
-    printf("    --id3v1-only    --id3v2-only\n");
-    printf("\n");
-    printf("    --about         what this build is and what's in it\n");
-    printf("    --features      feature/capability list\n");
-    printf("    --longhelp      full option and notes listing\n");
-    printf("    --license       licensing information\n");
-    printf("    --version       version and component lineage\n");
-    printf("    -h, --help      this help\n");
+/* Requested help (-h/--longhelp) goes to stdout; the missing-argument error
+ * path prints it to stderr instead (same split as stock LAME), so a piped
+ * stdout never receives help text. */
+static void usage(const char *prog, FILE *f = stdout) {
+    banner(f);
+    fprintf(f, "\n");
+    fprintf(f, "usage: %s [options] <infile> [outfile.mp3]\n", prog);
+    fprintf(f, "\n");
+    fprintf(f, "    <infile> is WAV (PCM 8/16/24/32-bit or 32/64-bit float), AIFF\n");
+    fprintf(f, "    (16/24-bit) or FLAC (any bit depth, multithreaded decode), mono or\n");
+    fprintf(f, "    stereo, any sample rate. Use \"-\" for stdin/stdout.\n");
+    fprintf(f, "\n");
+    fprintf(f, "RECOMMENDED:\n");
+    fprintf(f, "    %s -V2 -t0 input.wav output.mp3      (VBR, all cores)\n", prog);
+    fprintf(f, "\n");
+    fprintf(f, "OPTIONS:\n");
+    fprintf(f, "    -b n            CBR bitrate in kbps (default 192)\n");
+    fprintf(f, "    --abr n         ABR (average) bitrate in kbps\n");
+    fprintf(f, "    -V n            VBR quality 0..9  (0=best/biggest, 9=smallest)\n");
+    fprintf(f, "    --preset p      medium / standard / extreme / insane, or 8..320 (ABR)\n");
+    fprintf(f, "    --resample f    output sample rate in kHz or Hz (default: automatic)\n");
+    fprintf(f, "    -q n            encoder quality 0..9 (slow..fast)\n");
+    fprintf(f, "                    NOTE: clamped to >=4 for CBR/ABR (bug #516 q4 fix)\n");
+    fprintf(f, "    -m mode         stereo mode: a=auto  s=stereo  m=mono  j=joint\n");
+    fprintf(f, "    -t n            worker threads (0 or omitted = all CPU threads)\n");
+    fprintf(f, "    -v, --verbose   print encoding configuration and a timing summary\n");
+    fprintf(f, "    --quiet         suppress the banner and progress output\n");
+    fprintf(f, "\n");
+    fprintf(f, "    --decode        decode an MP3 to WAV (input=mp3, output=wav)\n");
+    fprintf(f, "\n");
+    fprintf(f, "  ID3 tags:\n");
+    fprintf(f, "    --tt title      --ta artist     --tl album\n");
+    fprintf(f, "    --ty year       --tc comment    --tn track[/total]\n");
+    fprintf(f, "    --tg genre      --ti file.jpg   (album art: JPEG/PNG)\n");
+    fprintf(f, "    --id3v1-only    --id3v2-only\n");
+    fprintf(f, "\n");
+    fprintf(f, "    --about         what this build is and what's in it\n");
+    fprintf(f, "    --features      feature/capability list\n");
+    fprintf(f, "    --longhelp      full option and notes listing\n");
+    fprintf(f, "    --license       licensing information\n");
+    fprintf(f, "    --version       version and component lineage\n");
+    fprintf(f, "    -h, --help      this help\n");
 }
 
 static void longhelp(const char *prog) {
@@ -707,14 +712,24 @@ static void longhelp(const char *prog) {
     printf("    were ever broken the file is transparently re-encoded single-threaded\n");
     printf("    so output is always valid.\n");
     printf("\n");
+    printf("STDIN / STDOUT (\"-\"):\n");
+    printf("    Use \"-\" as infile and/or outfile to pipe. All status output goes to\n");
+    printf("    stderr, so it stays visible and can never corrupt the piped stream.\n");
+    printf("    The whole input is read, and the whole MP3 assembled, in memory\n");
+    printf("    before anything is written, so the Xing/Info tag is complete even on\n");
+    printf("    stdout (stock LAME can't finalize it there).\n");
+    printf("    NOTE: legacy Windows PowerShell 5.x corrupts binary \">\" redirection;\n");
+    printf("    use PowerShell 7+, cmd.exe, or a real output filename there.\n");
+    printf("\n");
     printf("CPU ENGINE:\n");
     printf("    One binary contains four libmp3lame builds, chosen by CPUID:\n");
-    printf("      znver5 (AVX-512)   -- AMD Zen 5 (built but UNVERIFIED, no host)\n");
-    printf("      znver4 (AVX-512)   -- any AVX-512 CPU  (built but UNVERIFIED)\n");
-    printf("      znver3 (AVX2/FMA)  -- AMD Zen 3 and any AVX2+FMA+BMI2 CPU (tested)\n");
-    printf("      x86-64 (SSE2)      -- generic fallback for older CPUs (tested)\n");
-    printf("    Intel CPUs are supported: they run the matching engine (AVX-512 ->\n");
-    printf("    znver4, mainstream -> znver3, older -> SSE2); znver5 is AMD-only.\n");
+    printf("      znver5 (AVX-512)   -- AMD Zen 5\n");
+    printf("      znver4 (AVX-512)   -- AMD Zen 4, and any other AVX-512 CPU (e.g. Intel)\n");
+    printf("      znver3 (AVX2/FMA)  -- AMD Zen 1-3 and any AVX2+FMA+BMI2 CPU\n");
+    printf("      x86-64 (SSE2)      -- generic fallback for older CPUs\n");
+    printf("    The choice follows the actual CPU features (plus AMD family for\n");
+    printf("    znver5), so Intel CPUs simply get the closest engine. --version and\n");
+    printf("    -v show the detected CPU and the engine chosen for it.\n");
     printf("    Override for testing: set env  SUPERLAME_ENGINE=sse2|znver3|znver4|znver5\n");
     printf("\n");
     printf("THE q4 QUALITY FIX (LAME bug #516):\n");
@@ -745,7 +760,8 @@ static void about() {
     printf("  Built with clang/LLVM, with a runtime CPU-dispatch fat binary tuned\n");
     printf("  for AMD Zen 5/4/3 (znver5/4/3) and a generic SSE2 fallback.\n");
     printf("\n");
-    printf("  Active CPU engine right now: %s\n", SelectLameEngine().name);
+    printf("  Active CPU engine right now: %s  [CPU: %s]\n",
+           SelectLameEngine().name, CpuDescription());
 }
 
 static void features() {
@@ -799,8 +815,7 @@ static void version() {
     printf("  quality    : maikmerten q4 patch (LAME bug #516, CBR/ABR)\n");
     printf("  parallel   : SuperFast chunk-split + bit-reservoir repack (R. Kausch)\n");
     printf("  engines    : znver5 / znver4 / znver3 / x86-64 (CPUID-selected)\n");
-    printf("               (znver4/znver5 are built but UNVERIFIED -- no Zen 4/5\n");
-    printf("                host was available to test them; znver3 + SSE2 are.)\n");
+    printf("  cpu        : %s\n", CpuDescription());
     printf("  active     : %s\n", SelectLameEngine().name);
 }
 
@@ -923,14 +938,12 @@ int main(int argc, char **argv) {
         else if (!outPath) outPath = argv[i];
     }
 
-    if (!inPath || !outPath) { usage(prog); return 1; }
+    if (!inPath || !outPath) { usage(prog, stderr); return 1; }
     if (numThreads <= 0) numThreads = (int) std::max(1u, std::thread::hardware_concurrency());
 
-    /* Writing the MP3 to stdout: suppress stdout chatter so it can't corrupt the
-     * piped stream (real errors still go to stderr). */
-    if (outPath[0] == '-' && outPath[1] == '\0') quiet = true;
-
-    if (!quiet) banner();
+    /* All run-time status output goes to stderr (like stock LAME), so it stays
+     * visible -- and can't corrupt the stream -- when the MP3 rides stdout. */
+    if (!quiet) banner(stderr);
 
     /* --decode: MP3 -> WAV via the built-in libmpg123. */
     if (decode) {
@@ -940,10 +953,21 @@ int main(int argc, char **argv) {
         FILE *mf = open_utf8(inPath, "rb");
 #endif
         if (!mf) { fprintf(stderr, "cannot open input: %s\n", inPath); return 1; }
-        int64_t msz = FileSize64(mf);
-        std::vector<unsigned char> mp3(msz > 0 ? (size_t) msz : 0);
-        if (msz > 0 && fread(mp3.data(), 1, (size_t) msz, mf) != (size_t) msz) { fclose(mf); fprintf(stderr, "read failed\n"); return 1; }
-        fclose(mf);
+        bool mp3IsStdin = (inPath[0] == '-' && inPath[1] == '\0');
+        std::vector<unsigned char> mp3;
+        if (!mp3IsStdin) {
+            int64_t msz = FileSize64(mf);
+            mp3.resize(msz > 0 ? (size_t) msz : 0);
+            if (msz > 0 && fread(mp3.data(), 1, (size_t) msz, mf) != (size_t) msz) { fclose(mf); fprintf(stderr, "read failed\n"); return 1; }
+            fclose(mf);
+        } else {
+            /* Piped stdin: sizing by seek is unreliable on Windows pipes (it can
+             * "succeed" with a bogus small size => silently truncated decode),
+             * so read to EOF exactly like ReadWav does for encode input. */
+            unsigned char chunk[64 * 1024];
+            size_t r;
+            while ((r = fread(chunk, 1, sizeof chunk, mf)) > 0) mp3.insert(mp3.end(), chunk, chunk + r);
+        }
 
         /* Reject obvious non-MP3 input (e.g. a WAV), so libmpg123 doesn't
          * "decode" false syncs in raw PCM into garbage. Accept an ID3v2 tag
@@ -973,12 +997,12 @@ int main(int argc, char **argv) {
         if (!quiet) {
             double secs  = std::chrono::duration<double>(td1 - td0).count();
             double audio = channels ? (double) (pcm.size() / channels) / rate : 0.0;
-            printf("Decoded %s -> %s : %ld Hz, %d ch, %.2f s%s\n",
-                   inPath, outPath, rate, channels, audio,
-                   secs > 0 ? "" : "");
+            fprintf(stderr, "Decoded %s -> %s : %ld Hz, %d ch, %.2f s%s\n",
+                    inPath, outPath, rate, channels, audio,
+                    secs > 0 ? "" : "");
             if (verbose)
-                printf("  %zu samples, decode time %.2f s (%.0fx realtime)\n",
-                       pcm.size(), secs, secs > 0 ? audio / secs : 0.0);
+                fprintf(stderr, "  %zu samples, decode time %.2f s (%.0fx realtime)\n",
+                        pcm.size(), secs, secs > 0 ? audio / secs : 0.0);
         }
         return 0;
     }
@@ -1064,10 +1088,21 @@ int main(int argc, char **argv) {
             FILE *cf = open_utf8(coverPath, "rb");
 #endif
             if (!cf) { fprintf(stderr, "cannot open album-art file: %s\n", coverPath); return 1; }
-            int64_t asz = FileSize64(cf);
-            if (asz > 0) { art.resize((size_t) asz);
-                if (fread(art.data(), 1, (size_t) asz, cf) != (size_t) asz) art.clear(); }
-            fclose(cf);
+            bool artIsStdin = (coverPath[0] == '-' && coverPath[1] == '\0');
+            if (!artIsStdin) {
+                int64_t asz = FileSize64(cf);
+                if (asz > 0) { art.resize((size_t) asz);
+                    if (fread(art.data(), 1, (size_t) asz, cf) != (size_t) asz) art.clear(); }
+                fclose(cf);
+            } else {
+                /* "--ti -": sizing a pipe by seek is unreliable on Windows, so
+                 * read to EOF (same as the audio readers). Only possible when
+                 * the audio input isn't also stdin -- that read got there first
+                 * and left EOF, which lands in the empty-art error below. */
+                unsigned char chunk[64 * 1024];
+                size_t r;
+                while ((r = fread(chunk, 1, sizeof chunk, cf)) > 0) art.insert(art.end(), chunk, chunk + r);
+            }
             if (art.empty()) { fprintf(stderr, "album-art file is empty or unreadable: %s\n", coverPath); return 1; }
             artSource = coverPath;
         } else if (g_inputWasFlac && !g_flacMeta.art.data.empty()) {
@@ -1155,32 +1190,33 @@ int main(int argc, char **argv) {
         const int spf = 1152;
         double ratio = (double) cfg.rate * cfg.channels * 16
                      / ((cfg.vbrMode == vbr_off ? cfg.bitrate : cfg.abrBitrate) * 1000.0);
-        printf("\n");
-        printf("Encoding %s\n", inPath);
-        printf("      to %s\n", outPath);
-        printf("Engine: %s   Threads: %d\n", SelectLameEngine().name, numThreads);
+        fprintf(stderr, "\n");
+        fprintf(stderr, "Encoding %s\n", inPath);
+        fprintf(stderr, "      to %s\n", outPath);
+        fprintf(stderr, "Engine: %s   CPU: %s   Threads: %d\n",
+                SelectLameEngine().name, CpuDescription(), numThreads);
         if (cfg.vbrMode == vbr_mtrh)
-            printf("Encoding as %.3g kHz %s MPEG-1 Layer III  VBR -V%d\n",
-                   cfg.rate / 1000.0, stereoName(cfg.stereoMode), cfg.vbrQuality / 10);
+            fprintf(stderr, "Encoding as %.3g kHz %s MPEG-1 Layer III  VBR -V%d\n",
+                    cfg.rate / 1000.0, stereoName(cfg.stereoMode), cfg.vbrQuality / 10);
         else
-            printf("Encoding as %.3g kHz %s MPEG-1 Layer III (%.1fx) %s %d kbps qval=%d\n",
-                   cfg.rate / 1000.0, stereoName(cfg.stereoMode), ratio, modeName(cfg.vbrMode),
-                   cfg.vbrMode == vbr_off ? cfg.bitrate : cfg.abrBitrate, effQ < 0 ? 4 : effQ);
+            fprintf(stderr, "Encoding as %.3g kHz %s MPEG-1 Layer III (%.1fx) %s %d kbps qval=%d\n",
+                    cfg.rate / 1000.0, stereoName(cfg.stereoMode), ratio, modeName(cfg.vbrMode),
+                    cfg.vbrMode == vbr_off ? cfg.bitrate : cfg.abrBitrate, effQ < 0 ? 4 : effQ);
         if (clamped)
-            printf("CBR/ABR: -q %d clamped to 4 (bug #516 quality fix)\n", cfg.quality);
-        printf("Frame size: %d samples   Input: %d samples (%.2f s)%s\n",
-               spf, (int) wav.count() / cfg.channels,
-               (double) (wav.count() / cfg.channels) / cfg.rate,
-               wav.useFloat ? "  [full-precision float input]" : "");
-        printf("\n");
+            fprintf(stderr, "CBR/ABR: -q %d clamped to 4 (bug #516 quality fix)\n", cfg.quality);
+        fprintf(stderr, "Frame size: %d samples   Input: %d samples (%.2f s)%s\n",
+                spf, (int) wav.count() / cfg.channels,
+                (double) (wav.count() / cfg.channels) / cfg.rate,
+                wav.useFloat ? "  [full-precision float input]" : "");
+        fprintf(stderr, "\n");
     } else if (!quiet) {
         char rate[32];
         if (cfg.vbrMode == vbr_mtrh)      snprintf(rate, sizeof rate, "VBR -V%d", cfg.vbrQuality / 10);
         else if (cfg.vbrMode == vbr_abr)  snprintf(rate, sizeof rate, "ABR %d kbps", cfg.abrBitrate);
         else                              snprintf(rate, sizeof rate, "CBR %d kbps", cfg.bitrate);
-        printf("Encoding %s -> %s : %.3g kHz %s, %s, %d thread(s), %s\n",
-               inPath, outPath, cfg.rate / 1000.0, stereoName(cfg.stereoMode),
-               rate, numThreads, SelectLameEngine().name);
+        fprintf(stderr, "Encoding %s -> %s : %.3g kHz %s, %s, %d thread(s), %s\n",
+                inPath, outPath, cfg.rate / 1000.0, stereoName(cfg.stereoMode),
+                rate, numThreads, SelectLameEngine().name);
     }
 
     /* The encoder API carries sample counts as int; a >2^31-sample input (a
@@ -1252,14 +1288,14 @@ int main(int argc, char **argv) {
         double audio = (double) (wav.count() / cfg.channels) / cfg.rate;
         long long bytes = driver.GetSize();
         if (verbose) {
-            printf("Done.\n");
-            printf("  output     : %s (%lld bytes, %.1f KiB)\n", outPath, bytes, bytes / 1024.0);
-            printf("  encode time: %.2f s   audio: %.2f s   speed: %.1fx realtime\n",
-                   secs, audio, secs > 0 ? audio / secs : 0.0);
-            printf("  avg bitrate: %.0f kbps\n", bytes * 8.0 / 1000.0 / (audio > 0 ? audio : 1));
+            fprintf(stderr, "Done.\n");
+            fprintf(stderr, "  output     : %s (%lld bytes, %.1f KiB)\n", outPath, bytes, bytes / 1024.0);
+            fprintf(stderr, "  encode time: %.2f s   audio: %.2f s   speed: %.1fx realtime\n",
+                    secs, audio, secs > 0 ? audio / secs : 0.0);
+            fprintf(stderr, "  avg bitrate: %.0f kbps\n", bytes * 8.0 / 1000.0 / (audio > 0 ? audio : 1));
         } else {
-            printf("wrote %s (%lld bytes, %.1fx realtime)\n",
-                   outPath, bytes, secs > 0 ? audio / secs : 0.0);
+            fprintf(stderr, "wrote %s (%lld bytes, %.1fx realtime)\n",
+                    outPath, bytes, secs > 0 ? audio / secs : 0.0);
         }
     }
     return 0;

@@ -1,11 +1,13 @@
 /* superlame-mt: runtime engine dispatch.
  *
- * Two libmp3lame builds are linked into the binary with prefixed symbols:
+ * Four libmp3lame builds are linked into the binary with prefixed symbols:
+ *   __zv5_*   -> compiled -march=znver5 (AVX-512, AMD Zen 5)
+ *   __zv4_*   -> compiled -march=znver4 (AVX-512)
  *   __l3v_*   -> compiled -march=znver3 (AVX2/FMA path)
  *   __lsse_*  -> compiled -march=x86-64 (generic SSE2 fallback)
  *
- * At startup we CPUID-probe for the Zen3-relevant feature set (AVX2) and bind a
- * table of function pointers to the chosen engine. The frontend calls through
+ * At startup we CPUID-probe the feature set and bind a table of function
+ * pointers to the best engine the CPU can run. The frontend calls through
  * LAME_DISPATCH(name)(...) instead of lame_name(...).
  */
 #ifndef SUPERLAME_DISPATCH_H
@@ -58,5 +60,10 @@ struct LameEngine {
 
 /* Selects and returns the active engine (probes CPUID once). */
 const LameEngine &SelectLameEngine();
+
+/* One-line description of the CPU that was probed (vendor, Zen generation,
+ * usable ISA level), e.g. "AMD Zen 4 (family 0x19, AVX-512)". Lets the
+ * frontend show WHY an engine was chosen. */
+const char *CpuDescription();
 
 #endif

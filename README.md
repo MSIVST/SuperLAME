@@ -29,7 +29,10 @@ format support, high-quality resampling, and ID3 tagging.
 - **Decoder:** MP3 → WAV via built-in libmpg123 (`--decode`).
 - **Input:** WAV (PCM 8/16/24/32-bit + 32/64-bit float), AIFF (16/24-bit), and
   FLAC (up to 24-bit, **multithreaded decode**), mono/stereo, any sample rate;
-  `-` = stdin/stdout. 24-bit, float and FLAC keep full precision through LAME's
+  `-` = stdin/stdout (all status output goes to stderr, so it never touches the
+  piped stream). **Piping note:** legacy Windows PowerShell 5.x corrupts binary
+  stdout redirected with `>`; use PowerShell 7+, cmd.exe, or a real output
+  filename there. 24-bit, float and FLAC keep full precision through LAME's
   float pipeline (no early truncation).
 - **Resampling:** non-MP3 rates (e.g. 96/88.2 kHz hi-res) resampled to the
   nearest legal rate with r8brain (high quality, linear phase), parallelized

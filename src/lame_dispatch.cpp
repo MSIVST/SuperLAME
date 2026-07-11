@@ -100,10 +100,10 @@ static void cpuidex(int regs[4], int leaf, int sub) {
 #define X_EXTERN(PFX, ret, name, params) ret CAT(PFX, name) params;
 
 /* Instantiate the four engines. */
-ENGINE_BLOCK(__zv5_,  "znver5 (AVX-512, unverified)", kZnver5)
-ENGINE_BLOCK(__zv4_,  "znver4 (AVX-512, unverified)", kZnver4)
-ENGINE_BLOCK(__l3v_,  "znver3 (AVX2/FMA)",            kZnver3)
-ENGINE_BLOCK(__lsse_, "x86-64 (SSE2 fallback)",       kSse2)
+ENGINE_BLOCK(__zv5_,  "znver5 (AVX-512)",       kZnver5)
+ENGINE_BLOCK(__zv4_,  "znver4 (AVX-512)",       kZnver4)
+ENGINE_BLOCK(__l3v_,  "znver3 (AVX2/FMA)",      kZnver3)
+ENGINE_BLOCK(__lsse_, "x86-64 (SSE2 fallback)", kSse2)
 
 /* --------------------------- CPU feature probe --------------------------- */
 struct CpuInfo {
@@ -111,18 +111,30 @@ struct CpuInfo {
     bool avx512f = false, avx512bw = false, avx512vl = false;
     unsigned family = 0, model = 0;
     bool isAMD = false;
+    char vendor[13] = {0};
 };
+
+/* XCR0 = which register state the OS saves/restores (xgetbv leaf 0). Only
+ * callable when CPUID reports OSXSAVE. */
+static unsigned long long Xcr0() {
+#if defined(_MSC_VER)
+    return _xgetbv(0);
+#else
+    unsigned lo, hi;
+    __asm__("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+    return ((unsigned long long) hi << 32) | lo;
+#endif
+}
 
 static CpuInfo ProbeCpu() {
     CpuInfo ci;
     int r[4];
     cpuidex(r, 0, 0);
     int maxLeaf = r[0];
-    char vendor[13] = {0};
-    memcpy(vendor + 0, &r[1], 4);
-    memcpy(vendor + 4, &r[3], 4);
-    memcpy(vendor + 8, &r[2], 4);
-    ci.isAMD = (strcmp(vendor, "AuthenticAMD") == 0);
+    memcpy(ci.vendor + 0, &r[1], 4);
+    memcpy(ci.vendor + 4, &r[3], 4);
+    memcpy(ci.vendor + 8, &r[2], 4);
+    ci.isAMD = (strcmp(ci.vendor, "AuthenticAMD") == 0);
 
     if (maxLeaf < 1) return ci;
     cpuidex(r, 1, 0);
@@ -137,19 +149,48 @@ static CpuInfo ProbeCpu() {
     bool osxsave = (r[2] >> 27) & 1;
     bool avx     = (r[2] >> 28) & 1;
     ci.fma       = (r[2] >> 12) & 1;
-    bool osAVX = osxsave && avx;      /* OS must have enabled XSAVE for AVX regs */
+    /* CPUID feature bits say what the CPU has; XCR0 says what register state
+     * the OS actually saves. Using AVX/AVX-512 without the matching XCR0 bits
+     * faults, so gate each tier on both. */
+    unsigned long long xcr0 = osxsave ? Xcr0() : 0;
+    bool osYMM = osxsave && avx && (xcr0 & 0x06) == 0x06;   /* XMM+YMM state  */
+    bool osZMM = osYMM && (xcr0 & 0xE0) == 0xE0;            /* opmask+ZMM state */
 
     if (maxLeaf >= 7) {
         cpuidex(r, 7, 0);
-        ci.avx2     = osAVX && ((r[1] >> 5)  & 1);
+        ci.avx2     = osYMM && ((r[1] >> 5)  & 1);
         ci.bmi2     =          ((r[1] >> 8)  & 1);
-        /* AVX-512 also needs OS opmask/ZMM save support; on any CPU that reports
-         * these bits with osAVX we treat them as usable (Windows enables them). */
-        ci.avx512f  = osAVX && ((r[1] >> 16) & 1);
-        ci.avx512bw = osAVX && ((r[1] >> 30) & 1);
-        ci.avx512vl = osAVX && ((unsigned) (r[1] >> 31) & 1);
+        ci.avx512f  = osZMM && ((r[1] >> 16) & 1);
+        ci.avx512bw = osZMM && ((r[1] >> 30) & 1);
+        ci.avx512vl = osZMM && ((unsigned) (r[1] >> 31) & 1);
     }
     return ci;
+}
+
+/* Generation is inferred from vendor + family; within AMD family 0x19 the
+ * usable-AVX-512 split identifies Zen 4 vs Zen 3. If a hypervisor masks
+ * AVX-512 on a Zen 4 we report (and use) what is actually available, so the
+ * description always matches the engine choice. */
+const char *CpuDescription() {
+    static char buf[96] = {0};
+    if (buf[0]) return buf;
+    CpuInfo ci = ProbeCpu();
+    bool avx512 = ci.avx512f && ci.avx512bw && ci.avx512vl;
+    const char *isa = avx512 ? "AVX-512"
+                    : (ci.avx2 && ci.fma && ci.bmi2) ? "AVX2/FMA" : "SSE2";
+    if (ci.isAMD) {
+        const char *gen =
+            ci.family >  0x1A ? "newer than Zen 5" :
+            ci.family == 0x1A ? "Zen 5" :
+            ci.family == 0x19 ? (avx512 ? "Zen 4" : "Zen 3") :
+            ci.family == 0x17 ? "Zen 1/2" : "pre-Zen";
+        snprintf(buf, sizeof buf, "AMD %s (family 0x%X, %s)", gen, ci.family, isa);
+    } else if (strcmp(ci.vendor, "GenuineIntel") == 0) {
+        snprintf(buf, sizeof buf, "Intel (%s)", isa);
+    } else {
+        snprintf(buf, sizeof buf, "%s (%s)", ci.vendor[0] ? ci.vendor : "unknown CPU", isa);
+    }
+    return buf;
 }
 
 /* One-time selection. SUPERLAME_ENGINE env var overrides the CPUID probe:

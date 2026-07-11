@@ -1,5 +1,95 @@
 # Changelog
 
+## v1.0.3 — stdout/piping fixes and honest CPU reporting
+
+A piping audit prompted by user reports. Frontend-only changes; the four engine
+libraries are untouched. Regression suite: 35/35.
+
+### 1. Encoding to stdout gave no status output
+
+**Symptom:** `superlame -b 320 in.wav - > out.mp3` ran completely silent — no
+banner, no progress, no summary. Stock LAME shows its console output in this
+case.
+
+**Cause:** all run-time status text was written to *stdout*, so when the MP3
+stream itself owned stdout the frontend had to force `--quiet` to keep text
+bytes out of the file.
+
+**Fix:** run-time status output (banner, config, progress line, summaries,
+decode report) now goes to **stderr**, exactly like stock LAME, and the forced
+quiet is gone. Requested help/info commands (`--help`, `--version`, `--about`,
+`--features`, `--license`, `--longhelp`) stay on stdout so they can be piped
+into a pager. The missing-argument error path prints usage to stderr (also the
+LAME convention).
+
+**Insight:** because SuperLAME assembles the whole MP3 in memory before
+writing, the Xing/Info tag on a stdout stream is *complete* (frame count, TOC,
+CRC). Stock LAME cannot seek stdout, so its piped output carries an
+unfinalized tag. Piped SuperLAME output is byte-identical to file output.
+
+### 2. `--decode` from a piped stdin silently truncated the output
+
+**Symptom:** `type in.mp3 | superlame --decode - out.wav` produced a
+fragment (~one frame, 0.03 s of a 3 s file) and **exited 0**. The
+redirect form (`< in.mp3`, seekable) was always correct.
+
+**Cause:** the MP3 reader sized its buffer by seeking to end-of-file.
+On a Windows pipe that seek can *appear to succeed* with a bogus small
+size — worse than failing, because the short read then looks like a
+complete file. (The encode-side reader already special-cased stdin;
+the decode-side reader predated it and never got the guard.)
+
+**Fix:** stdin is now always read to EOF, never sized by seek — same
+pattern for audio input, `--decode` input, and `--ti` album art (a piped
+cover now works and produces a byte-identical MP3; art and audio both on
+stdin fails with a clear error). Piped decode output is byte-identical
+to the seekable cases.
+
+### 3. Engine banner didn't identify the CPU
+
+**Symptom:** an AVX-512 machine reported the engine as
+`znver4 (AVX-512, unverified)` — a static label that neither names the
+actual CPU nor explains the choice; `--longhelp` implied *any* AVX-512
+CPU maps to znver4.
+
+**Fix:** the probe now exposes a human CPU description — vendor, Zen
+generation and usable ISA (`AMD Zen 4 (family 0x19, AVX-512)`,
+`Intel (AVX-512)`, …). `--version` prints it as a `cpu :` line next to
+`active :`; verbose encodes print `Engine: … CPU: …`. The engine display
+names drop the "unverified" clutter, and the `--longhelp` table now states
+the real mapping (Zen 5 → znver5, Zen 4 + other AVX-512 CPUs → znver4,
+Zen 1-3 / any AVX2+FMA+BMI2 → znver3, else SSE2). Within AMD family 0x19,
+usable AVX-512 distinguishes Zen 4 from Zen 3, so the description always
+matches what the dispatcher can actually use.
+
+Note: engine *selection* was already correct in all released versions
+(an identified Zen 5 picks znver5); this release fixes what is *reported*.
+
+### 4. AVX-512 usability is now verified through XCR0 (`xgetbv`)
+
+**Latent bug:** the CPUID probe trusted the AVX/AVX-512 feature bits with
+only an OSXSAVE check, assuming the OS saves YMM/ZMM register state. Under
+a hypervisor or OS that exposes the CPU bits without enabling the state,
+the AVX-512 engines could be selected and fault on first use.
+
+**Fix:** the probe reads XCR0 via `xgetbv` and requires the XMM+YMM state
+bits (0x06) for the AVX2 tier and additionally opmask+ZMM (0xE0) for the
+AVX-512 tiers.
+
+### Docs (same pass)
+
+- `--longhelp` gained a `STDIN / STDOUT ("-")` section; README's input
+  bullet expanded: status output is on stderr, output is assembled in RAM
+  (complete Xing tag on stdout; no streaming), and **legacy Windows
+  PowerShell 5.x corrupts binary `>` redirection** — use PowerShell 7+,
+  cmd.exe, or a filename there.
+
+**Verified:** regression suite 35/35; full pipe matrix (WAV/AIFF/FLAC piped
+in, MP3 to stdout, decode from pipe/redirect/file, two-process
+encode-to-decode chain, piped 96 kHz hi-res through the parallel resampler at
+`-t1`/`-t16`, piped album art) — every pipe path byte-identical to its file
+equivalent; `--quiet` behavior unchanged.
+
 ## v1.0.2 — crash, resampler-seam and rate-decision fixes (source audit 2026-07)
 
 A source audit found three user-visible bugs (all reproduced, all fixed) plus
