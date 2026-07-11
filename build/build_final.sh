@@ -52,7 +52,7 @@ else
   echo "  [res] llvm-rc not found; building without icon"
 fi
 
-EXENAME="SuperLAME-1.0.2.exe"
+EXENAME="SuperLAME-1.0.3.exe"
 echo "=== Linking $EXENAME (both engines) ==="
 SYSLIBS="-lshlwapi -lshell32 -Xlinker /nodefaultlib:libucrt.lib -Xlinker /nodefaultlib:libcmt.lib"
 clang++ $CXXFLAGS "$OUT"/mp3frame.o "$OUT"/repacker.o "$OUT"/worker.o "$OUT"/main.o "$OUT"/lame_dispatch.o "$OUT"/dr_flac_impl.o $RESOBJ \

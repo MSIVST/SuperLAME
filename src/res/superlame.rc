@@ -6,8 +6,8 @@
 1 ICON "superlame.ico"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION      1,0,2,0
- PRODUCTVERSION   1,0,2,0
+ FILEVERSION      1,0,3,0
+ PRODUCTVERSION   1,0,3,0
  FILEOS           VOS__WINDOWS32
  FILETYPE         VFT_APP
 BEGIN
@@ -17,11 +17,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "SuperLAME project"
             VALUE "FileDescription",  "SuperLAME - SuperFast multithreaded LAME MP3 encoder"
-            VALUE "FileVersion",      "1.0.2"
+            VALUE "FileVersion",      "1.0.3"
             VALUE "InternalName",     "SuperLAME"
-            VALUE "OriginalFilename", "SuperLAME-1.0.2.exe"
+            VALUE "OriginalFilename", "SuperLAME-1.0.3.exe"
             VALUE "ProductName",      "SuperLAME"
-            VALUE "ProductVersion",   "1.0.2 (SuperFast LAME 3.101 beta 3 + libmpg123)"
+            VALUE "ProductVersion",   "1.0.3 (SuperFast LAME 3.101 beta 3 + libmpg123)"
             VALUE "LegalCopyright",   "GPL v2 or later. Combines LAME, mpg123, r8brain, fre:ac/BoCA SuperFast."
         END
     END
