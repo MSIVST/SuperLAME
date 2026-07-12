@@ -24,6 +24,7 @@
 #include <thread>
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <new>
 
 /* --------------------- Unicode-safe path handling ---------------------- *
@@ -82,6 +83,25 @@ static int64_t FileSize64(FILE *f) {
     fseeko(f, 0, SEEK_SET);
     return n;
 #endif
+}
+
+/* Process CPU time (kernel+user, summed over all threads) in seconds. --bench
+ * reports it next to wall time: play/cpu is the per-core figure comparable to
+ * stock LAME's "x", and cpu/wall is the parallel efficiency that tells whether
+ * added threads still buy anything. Granularity is the scheduler tick (~15.6 ms
+ * on Windows) -- fine for whole-run deltas. std::clock() is process CPU time on
+ * POSIX (and what LAME's own frontend uses). */
+static double ProcessCpuSeconds() {
+#ifdef _WIN32
+    FILETIME crt, exit_, kern, user;
+    if (GetProcessTimes(GetCurrentProcess(), &crt, &exit_, &kern, &user)) {
+        auto ft = [](const FILETIME &t) {
+            return (double) (((uint64_t) t.dwHighDateTime << 32) | t.dwLowDateTime) * 1e-7;
+        };
+        return ft(kern) + ft(user);
+    }
+#endif
+    return (double) std::clock() / CLOCKS_PER_SEC;
 }
 
 /* ------------------------------ RAM guard ------------------------------- *
@@ -475,7 +495,7 @@ int SuperEncoder::EncodeFrames(bool flush) {
     if (framesToProcess <= 0 || (flush && framesToProcess < overlap)) {
         if (flush) {
             SuperWorker *w0 = workers[nextWorker % workers.size()];
-            while (!w0->IsReady()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            w0->WaitUntilReady();
             w0->Lock();
             if (w0->GetPacketSizes().size() != 0)
                 dataLength += ProcessResults(w0, nextWorker == (int) workers.size());
@@ -491,7 +511,7 @@ int SuperEncoder::EncodeFrames(bool flush) {
     while (bufSamples - framesProcessed * samplesPerFrame >= samplesPerFrame * framesToProcess) {
         SuperWorker *workerToUse = workers[nextWorker % workers.size()];
 
-        while (!workerToUse->IsReady()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        workerToUse->WaitUntilReady();
 
         workerToUse->Lock();
         if (workerToUse->GetPacketSizes().size() != 0)
@@ -517,7 +537,7 @@ int SuperEncoder::EncodeFrames(bool flush) {
     /* Drain remaining workers. */
     for (int i = 0; i < (int) workers.size(); i++) {
         SuperWorker *workerToUse = workers[nextWorker % workers.size()];
-        while (!workerToUse->IsReady()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        workerToUse->WaitUntilReady();
         workerToUse->Lock();
         if (workerToUse->GetPacketSizes().size() != 0)
             dataLength += ProcessResults(workerToUse, nextWorker == (int) workers.size());
@@ -626,7 +646,7 @@ static int ProbeLameOutRate(const EncoderConfig &cfg, int inRate) {
 }
 
 /* --------------------------------- main -------------------------------- */
-#define SUPERLAME_VERSION   "1.0.3"
+#define SUPERLAME_VERSION   "1.1.0"
 #define SUPERLAME_LAME_VER  "3.101 beta 3 (SVN r6531)"
 #define SUPERLAME_MPG123    "1.33.6"
 
@@ -668,6 +688,8 @@ static void usage(const char *prog, FILE *f = stdout) {
     fprintf(f, "    -t n            worker threads (0 or omitted = all CPU threads)\n");
     fprintf(f, "    -v, --verbose   print encoding configuration and a timing summary\n");
     fprintf(f, "    --quiet         suppress the banner and progress output\n");
+    fprintf(f, "    --bench[=N]     benchmark: encode in RAM, write nothing (outfile\n");
+    fprintf(f, "                    optional); N>=2 repeats the encode, reports min/med/mean\n");
     fprintf(f, "\n");
     fprintf(f, "    --decode        decode an MP3 to WAV (input=mp3, output=wav)\n");
     fprintf(f, "\n");
@@ -720,6 +742,18 @@ static void longhelp(const char *prog) {
     printf("    stdout (stock LAME can't finalize it there).\n");
     printf("    NOTE: legacy Windows PowerShell 5.x corrupts binary \">\" redirection;\n");
     printf("    use PowerShell 7+, cmd.exe, or a real output filename there.\n");
+    printf("\n");
+    printf("BENCHMARKING (--bench):\n");
+    printf("    --bench encodes fully in RAM and writes no file (give an outfile\n");
+    printf("    anyway to keep the result). It reports a stage split (read /\n");
+    printf("    resample / encode) and one line carrying BOTH clocks, labeled:\n");
+    printf("      play/wall  audio-secs per wall-sec -- honest MT throughput\n");
+    printf("      play/cpu   audio-secs per CPU-sec  -- comparable to LAME's \"x\"\n");
+    printf("      par-eff    cpu/wall vs threads     -- parallel efficiency\n");
+    printf("    --bench=N repeats the encode N times on the in-RAM audio and\n");
+    printf("    reports wall min/med/mean (run 1 is warmup, discarded; CPU figures\n");
+    printf("    come from the fastest run). Read time from a pipe is labeled n/a\n");
+    printf("    (it measures the upstream producer, not this encoder).\n");
     printf("\n");
     printf("CPU ENGINE:\n");
     printf("    One binary contains four libmp3lame builds, chosen by CPUID:\n");
@@ -830,6 +864,7 @@ int main(int argc, char **argv) {
     EncoderConfig cfg;
     int numThreads = 0;
     bool verbose = false, quiet = false, decode = false;
+    int  benchRuns = 0;       /* --bench[=N]: 0 = off, N = encode repetitions */
     int  resampleTo = 0;      /* --resample: explicit output rate (Hz), 0 = auto */
     TagConfig tag;
     const char *coverPath = nullptr;   /* --ti: album-art image file (0 = none) */
@@ -888,6 +923,13 @@ int main(int argc, char **argv) {
         if      (a == "-v" || a == "--verbose"){ verbose = true; }
         else if (a == "--decode")              { decode = true; }
         else if (a == "--quiet")               { quiet = true; }
+        else if (a == "--bench")               { benchRuns = 1; }
+        else if (a.compare(0, 8, "--bench=") == 0) {
+            benchRuns = atoi(a.c_str() + 8);
+            if (benchRuns < 1 || benchRuns > 1000) {
+                fprintf(stderr, "--bench=N: N must be 1..1000\n"); return 1;
+            }
+        }
         else if (a == "--resample" && i + 1 < argc) {
             /* Accept kHz (e.g. 44.1) or Hz (e.g. 44100), like LAME. */
             double v = atof(argv[++i]);
@@ -938,7 +980,13 @@ int main(int argc, char **argv) {
         else if (!outPath) outPath = argv[i];
     }
 
-    if (!inPath || !outPath) { usage(prog, stderr); return 1; }
+    /* --bench makes the output file optional (default: encode in RAM, write
+     * nothing). If one IS given, it's honored -- bench-and-keep. */
+    if (!inPath || (!outPath && benchRuns == 0)) { usage(prog, stderr); return 1; }
+    if (decode && benchRuns > 0) {
+        fprintf(stderr, "--bench is an encoder benchmark; it cannot be combined with --decode.\n");
+        return 1;
+    }
     if (numThreads <= 0) numThreads = (int) std::max(1u, std::thread::hardware_concurrency());
 
     /* All run-time status output goes to stderr (like stock LAME), so it stays
@@ -1050,12 +1098,17 @@ int main(int argc, char **argv) {
     g_flacThreads = numThreads;      /* MT width for FLAC decode (if input is FLAC) */
     g_flacQuiet   = quiet;
     g_inputWasFlac = false;
+    auto tRead0 = std::chrono::steady_clock::now();
     try {
         if (!ReadWav(inPath, wav)) return 1;
     } catch (const std::bad_alloc &) {
         fprintf(stderr, "error: out of memory reading input (file too large for available RAM).\n");
         return 1;
     }
+    /* Includes container parse + any FLAC decode; for a pipe it also includes
+     * waiting on the producer, so --bench labels it n/a there. */
+    double benchReadSecs = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - tRead0).count();
 
     /* FLAC carries its own metadata: fill any tag field the user did NOT set on
      * the CLI (explicit --tt/--ta/... always win). Embedded front-cover art is
@@ -1157,7 +1210,9 @@ int main(int argc, char **argv) {
         else if (!IsLegalMp3Rate(wav.rate))       dstRate = NearestMp3Rate(wav.rate);
     }
 
+    double benchResampleSecs = 0.0;
     if (dstRate != wav.rate) {
+      auto tRes0 = std::chrono::steady_clock::now();
       try {
         /* Resampler works in float; promote a 16/8-bit short buffer to float. */
         if (!wav.useFloat) {
@@ -1175,11 +1230,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "error: out of memory during resampling (file too large for available RAM).\n");
         return 1;
       }
+      benchResampleSecs = std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - tRes0).count();
     }
 
     cfg.rate     = wav.rate;
     cfg.channels = wav.channels;
     cfg.useFloat = wav.useFloat;
+
+    const char *outDisp = outPath ? outPath : "(bench: no output)";
 
     /* Effective -q after the q4 clamp, for display. */
     int effQ = cfg.quality;
@@ -1192,7 +1251,7 @@ int main(int argc, char **argv) {
                      / ((cfg.vbrMode == vbr_off ? cfg.bitrate : cfg.abrBitrate) * 1000.0);
         fprintf(stderr, "\n");
         fprintf(stderr, "Encoding %s\n", inPath);
-        fprintf(stderr, "      to %s\n", outPath);
+        fprintf(stderr, "      to %s\n", outDisp);
         fprintf(stderr, "Engine: %s   CPU: %s   Threads: %d\n",
                 SelectLameEngine().name, CpuDescription(), numThreads);
         if (cfg.vbrMode == vbr_mtrh)
@@ -1215,7 +1274,7 @@ int main(int argc, char **argv) {
         else if (cfg.vbrMode == vbr_abr)  snprintf(rate, sizeof rate, "ABR %d kbps", cfg.abrBitrate);
         else                              snprintf(rate, sizeof rate, "CBR %d kbps", cfg.bitrate);
         fprintf(stderr, "Encoding %s -> %s : %.3g kHz %s, %s, %d thread(s), %s\n",
-                inPath, outPath, cfg.rate / 1000.0, stereoName(cfg.stereoMode),
+                inPath, outDisp, cfg.rate / 1000.0, stereoName(cfg.stereoMode),
                 rate, numThreads, SelectLameEngine().name);
     }
 
@@ -1228,39 +1287,139 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    auto t0 = std::chrono::steady_clock::now();
-    MemDriver driver;
-    try {
-        SuperEncoder enc(cfg, &driver, numThreads);
-        /* Feed all samples (frame-aligned chunks happen inside). */
-        enc.WriteData(wav.data(), (int) wav.count());
-        enc.Finish();
-    } catch (const std::bad_alloc &) {
-        fprintf(stderr, "error: out of memory during encoding (file too large for available RAM).\n");
-        return 1;
-    }
+    /* --bench=N repeats the encode on the already-in-RAM PCM: iterations are
+     * pure encode+repack with zero I/O, so min-of-N isolates steady-state
+     * speed. Without --bench this loop runs exactly once (unchanged behavior). */
+    struct BenchRun { double wall, cpu; bool stFallback; };
+    std::vector<BenchRun> benchRun;
+    int totalRuns = benchRuns > 0 ? benchRuns : 1;
 
-    /* Self-heal: the parallel bit-reservoir repacker has a rare corner case on
-     * pathological dynamics where one frame's chaining is left inconsistent. If
-     * the assembled stream's frame chain is broken anywhere, transparently
-     * re-encode single-threaded (always correct) and use that instead. */
-    if (numThreads > 1 && !FrameChainValid(driver.Bytes())) {
-        /* Always report on stderr (even with --quiet): a desync is a real event
-         * worth surfacing, and lets test harnesses detect it without decoding. */
-        fprintf(stderr, "note: repacker produced an invalid frame; re-encoding single-threaded for a clean stream...\n");
+    MemDriver driver;
+    for (int run = 0; run < totalRuns; run++) {
+        MemDriver d;
+        auto   t0 = std::chrono::steady_clock::now();
+        double c0 = ProcessCpuSeconds();
+        bool   stFallback = false;
         try {
-            MemDriver clean;
-            SuperEncoder st(cfg, &clean, 1);
-            st.WriteData(wav.data(), (int) wav.count());
-            st.Finish();
-            driver = std::move(clean);
+            SuperEncoder enc(cfg, &d, numThreads);
+            /* Feed all samples (frame-aligned chunks happen inside). */
+            enc.WriteData(wav.data(), (int) wav.count());
+            enc.Finish();
         } catch (const std::bad_alloc &) {
             fprintf(stderr, "error: out of memory during encoding (file too large for available RAM).\n");
             return 1;
         }
-    }
-    auto t1 = std::chrono::steady_clock::now();
 
+        /* Self-heal: the parallel bit-reservoir repacker has a rare corner case on
+         * pathological dynamics where one frame's chaining is left inconsistent. If
+         * the assembled stream's frame chain is broken anywhere, transparently
+         * re-encode single-threaded (always correct) and use that instead. */
+        if (numThreads > 1 && !FrameChainValid(d.Bytes())) {
+            /* Always report on stderr (even with --quiet): a desync is a real event
+             * worth surfacing, and lets test harnesses detect it without decoding. */
+            fprintf(stderr, "note: repacker produced an invalid frame; re-encoding single-threaded for a clean stream...\n");
+            stFallback = true;
+            try {
+                MemDriver clean;
+                SuperEncoder st(cfg, &clean, 1);
+                st.WriteData(wav.data(), (int) wav.count());
+                st.Finish();
+                d = std::move(clean);
+            } catch (const std::bad_alloc &) {
+                fprintf(stderr, "error: out of memory during encoding (file too large for available RAM).\n");
+                return 1;
+            }
+        }
+        benchRun.push_back({ std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(),
+                             ProcessCpuSeconds() - c0, stFallback });
+        driver = std::move(d);
+    }
+
+    /* --bench report. Prints even under --quiet (a silent benchmark is
+     * useless). Guardrail: both clocks always appear, both labeled --
+     * play/wall is the honest MT throughput; play/cpu is the per-core figure
+     * comparable to stock LAME's "x" (which would overstate an MT encode by
+     * the thread count if printed bare). */
+    if (benchRuns > 0) {
+        double    audio  = (double) (wav.count() / cfg.channels) / cfg.rate;
+        long long frames = ((long long) (wav.count() / cfg.channels) + 1151) / 1152;
+        double    kbps   = driver.GetSize() * 8.0 / 1000.0 / (audio > 0 ? audio : 1);
+
+        /* Aggregate set: warmup (run 1) discarded when N>=2; single-threaded
+         * fallback runs excluded (they contain a second full ST encode). If
+         * nothing survives, report the last run and label it. */
+        /* Engine token only ("znver3", not "znver3 (AVX2/FMA)") -- a space
+         * inside a value would break key=value parsing of the bench line. */
+        char engine[32];
+        snprintf(engine, sizeof engine, "%s", SelectLameEngine().name);
+        if (char *sp = strchr(engine, ' ')) *sp = '\0';
+
+        bool reportIsFallback = false;
+        std::vector<BenchRun> valid;
+        for (size_t i = 0; i < benchRun.size(); i++) {
+            if (benchRun[i].stFallback)   continue;
+            if (totalRuns > 1 && i == 0)  continue;
+            valid.push_back(benchRun[i]);
+        }
+        if (valid.empty()) {
+            valid.push_back(benchRun.back());
+            reportIsFallback = benchRun.back().stFallback;
+        }
+        const BenchRun *best = &valid[0];
+        for (const auto &r : valid) if (r.wall < best->wall) best = &r;
+
+        /* Stage split: the serial fixed floor vs the (parallel) encode. */
+        char readStr[32];
+        if (inIsStdin) snprintf(readStr, sizeof readStr, "n/a (pipe)");
+        else           snprintf(readStr, sizeof readStr, "%.2fs", benchReadSecs);
+        fprintf(stderr, "bench: stages  %s=%s  resample=%.2fs  encode%s=%.2fs  total=%.2fs\n",
+                g_inputWasFlac ? "read+decode" : "read", readStr,
+                benchResampleSecs,
+                totalRuns > 1 ? "(best)" : "", best->wall,
+                (inIsStdin ? 0.0 : benchReadSecs) + benchResampleSecs + best->wall);
+
+        if (totalRuns == 1) {
+            const BenchRun &r = valid[0];
+            fprintf(stderr, "bench: frames=%lld wall=%.2f cpu=%.2f play/wall=%.0fx play/cpu=%.1fx "
+                    "kbps=%.0f threads=%d engine=%s par-eff=%.1fx/%dt (%.0f%%)%s\n",
+                    frames, r.wall, r.cpu,
+                    r.wall > 0 ? audio / r.wall : 0.0,
+                    r.cpu  > 0 ? audio / r.cpu  : 0.0,
+                    kbps, numThreads, engine,
+                    r.wall > 0 ? r.cpu / r.wall : 0.0, numThreads,
+                    r.wall > 0 ? 100.0 * r.cpu / r.wall / numThreads : 0.0,
+                    reportIsFallback ? "  [ST fallback -- not representative of MT]" : "");
+        } else {
+            for (size_t i = 0; i < benchRun.size(); i++)
+                fprintf(stderr, "bench: run %zu/%d  wall=%.2f  cpu=%.2f%s%s\n",
+                        i + 1, totalRuns, benchRun[i].wall, benchRun[i].cpu,
+                        i == 0 ? "  (warmup, discarded)" : "",
+                        benchRun[i].stFallback ? "  (ST fallback, excluded)" : "");
+
+            std::vector<double> walls;
+            double wallSum = 0;
+            for (const auto &r : valid) { walls.push_back(r.wall); wallSum += r.wall; }
+            std::sort(walls.begin(), walls.end());
+            size_t n = walls.size();
+            double wmed = (walls[(n - 1) / 2] + walls[n / 2]) / 2;
+
+            /* Rank by wall, carry CPU: the cpu/play-cpu/par-eff figures all
+             * belong to the best (min-wall) run -- independently-minned
+             * columns would describe a run that never happened. */
+            fprintf(stderr, "bench: runs=%zu  wall[min %.2f med %.2f mean %.2f]  best-run cpu=%.2fs "
+                    "play/wall=%.0fx play/cpu=%.1fx  par-eff=%.1fx/%dt (%.0f%%)%s\n",
+                    n, walls.front(), wmed, wallSum / n, best->cpu,
+                    best->wall > 0 ? audio / best->wall : 0.0,
+                    best->cpu  > 0 ? audio / best->cpu  : 0.0,
+                    best->wall > 0 ? best->cpu / best->wall : 0.0, numThreads,
+                    best->wall > 0 ? 100.0 * best->cpu / best->wall / numThreads : 0.0,
+                    reportIsFallback ? "  [ST fallback -- not representative of MT]" : "");
+            fprintf(stderr, "bench: frames=%lld kbps=%.0f threads=%d engine=%s\n",
+                    frames, kbps, numThreads, engine);
+        }
+    }
+
+    if (outPath) {
     /* Render ID3 tags (frontend writes v2 before / v1 after the MP3 stream). */
     std::vector<unsigned char> id3v2, id3v1;
     if (tag.hasContent()) RenderTags(SelectLameEngine(), tag, id3v2, id3v1);
@@ -1282,9 +1441,10 @@ int main(int argc, char **argv) {
         else          wrote = wrote && fclose(of) == 0;
     }
     if (!wrote) { fprintf(stderr, "write failed: %s\n", outPath); return 1; }
+    }
 
-    if (!quiet) {
-        double secs  = std::chrono::duration<double>(t1 - t0).count();
+    if (!quiet && outPath) {
+        double secs  = benchRun.back().wall;
         double audio = (double) (wav.count() / cfg.channels) / cfg.rate;
         long long bytes = driver.GetSize();
         if (verbose) {

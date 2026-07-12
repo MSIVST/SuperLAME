@@ -8,6 +8,7 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <atomic>
 
 /* Minimal encoder configuration for the standalone CLI. Mirrors the subset of
@@ -49,6 +50,16 @@ private:
 
     int                     overlap;
 
+    /* Handoff signalling. `process`/`quit` transitions are made under
+     * signalMutex and announced on signalCV, so both directions of the
+     * handoff (dispatcher -> worker "go", worker -> dispatcher "done") are
+     * event waits, not 1 ms sleep-polls. At high thread counts a 128-frame
+     * chunk encodes in well under 1 ms, so a polled wait could cost more
+     * than the work itself. The flags stay atomic for the lock-free readers
+     * (IsReady(), the encode loop's flush check). */
+    std::mutex              signalMutex;
+    std::condition_variable signalCV;
+
     std::atomic<bool>       process{false};
     std::atomic<bool>       flush{false};
     std::atomic<bool>       quit{false};
@@ -75,6 +86,10 @@ public:
     bool Release() { workerMutex.unlock(); return true; }
 
     bool IsReady() const { return !process.load(); }
+
+    /* Block (event wait, no polling) until this worker has finished its
+     * current chunk and can accept the next one. */
+    void WaitUntilReady();
 
     const std::vector<unsigned char> &GetPackets() const    { return packetBuffer; }
     const std::vector<int>           &GetPacketSizes() const { return packetSizes; }

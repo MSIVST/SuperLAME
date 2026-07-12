@@ -3,11 +3,6 @@
 #include "worker.h"
 #include <algorithm>
 #include <cstring>
-#include <chrono>
-
-static inline void SleepMs(int ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
-}
 
 SuperWorker::SuperWorker(const EncoderConfig &config, int iOverlap) {
     overlap     = iOverlap;
@@ -78,7 +73,10 @@ void SuperWorker::Start() {
 
 void SuperWorker::Run() {
     while (!quit) {
-        while (!quit && !process) SleepMs(1);
+        {
+            std::unique_lock<std::mutex> wait(signalMutex);
+            signalCV.wait(wait, [this] { return quit.load() || process.load(); });
+        }
         if (quit) break;
 
         workerMutex.lock();
@@ -139,7 +137,11 @@ void SuperWorker::Run() {
 
         workerMutex.unlock();
 
-        process = false;
+        {
+            std::lock_guard<std::mutex> lock(signalMutex);
+            process = false;
+        }
+        signalCV.notify_all();
     }
 }
 
@@ -149,8 +151,12 @@ void SuperWorker::Encode(const unsigned char *buffer, int offset, int size, bool
     memcpy(samplesBuffer.data(), buffer + (size_t) offset * sampleBytes, (size_t) size * sampleBytes);
     workerMutex.unlock();
 
-    flush   = last;
-    process = true;
+    {
+        std::lock_guard<std::mutex> lock(signalMutex);
+        flush   = last;
+        process = true;
+    }
+    signalCV.notify_all();
 }
 
 void SuperWorker::ReEncode(int skipFrames, int dummyFrames) {
@@ -177,15 +183,20 @@ void SuperWorker::ReEncode(int skipFrames, int dummyFrames) {
     Encode(dummyBuffer.data(), 0, dummySamples, flush);
 
     workerMutex.unlock();
-    while (process) SleepMs(1);
+    WaitUntilReady();
     workerMutex.lock();
 
     /* Re-encode previous samples. */
     Encode(backupBuffer.data(), 0, (int) (backupBuffer.size() / sampleBytes), flush);
 
     workerMutex.unlock();
-    while (process) SleepMs(1);
+    WaitUntilReady();
     workerMutex.lock();
+}
+
+void SuperWorker::WaitUntilReady() {
+    std::unique_lock<std::mutex> wait(signalMutex);
+    signalCV.wait(wait, [this] { return !process.load(); });
 }
 
 void SuperWorker::GetInfoTag(std::vector<unsigned char> &buffer) const {
@@ -195,7 +206,11 @@ void SuperWorker::GetInfoTag(std::vector<unsigned char> &buffer) const {
 }
 
 void SuperWorker::Quit() {
-    quit = true;
+    {
+        std::lock_guard<std::mutex> lock(signalMutex);
+        quit = true;
+    }
+    signalCV.notify_all();
 }
 
 void SuperWorker::Wait() {

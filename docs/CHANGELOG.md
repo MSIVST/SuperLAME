@@ -1,5 +1,66 @@
 # Changelog
 
+## v1.1.0 — 1.8–1.9x faster multithreading, --bench mode, FLAC hardening
+
+Frontend-only changes; the four engine libraries are untouched. Output is
+byte-identical to v1.0.3 for every configuration. Regression suite: 42/42
+(35 existing + 7 new --bench tests); SQAM 350 encodes and ODAQ 132 encodes
+clean; input fuzzer 920/920 (up from 919/920 — see fix 3).
+
+### 1. Worker handoffs no longer sleep-poll (1.8–1.9x faster MT encodes)
+
+**Symptom:** multithreaded encodes were roughly half the speed they should
+have been at every thread count.
+
+**Cause:** every dispatcher<->worker handoff waited in a 1 ms sleep-poll
+loop. On Windows, `sleep_for(1ms)` rounds up to the scheduler tick (~15.6 ms
+by default), so each of the thousands of chunk handoffs could stall far
+longer than the chunk's own encode time.
+
+**Fix:** all six polling loops replaced with condition-variable event waits
+(`worker.{h,cpp}`, dispatcher wait sites in `main.cpp`). Wake latency drops
+from milliseconds to microseconds. Measured on a 5800X3D (44-minute album,
+CBR 320): t2 24.3s -> 13.8s, t4 12.8s -> 7.1s, t8 9.8s -> 5.1s,
+t16 7.2s -> 3.9s. Output verified byte-identical to v1.0.3.
+
+### 2. New `--bench[=N]` benchmark mode
+
+Encodes fully in RAM and writes nothing (an output file is optional —
+giving one keeps the result, byte-identical to a normal encode). Reports a
+stage split (read / resample / encode) and a parseable line carrying both
+clocks, always labeled: `play/wall` (honest multithreaded throughput),
+`play/cpu` (per-core figure comparable to stock LAME's "x"), and `par-eff`
+(cpu/wall parallel efficiency). `--bench=N` repeats the encode on the
+in-RAM audio and reports wall min/median/mean (run 1 is warmup, discarded;
+CPU figures come from the fastest run). Pipe input labels read time
+`n/a (pipe)` — that stage would measure the upstream producer. Design
+record: `docs/BENCHPLAN.md`.
+
+### 3. FLAC allocation bomb (fuzzer-found hang)
+
+**Symptom:** a bit-flipped FLAC (fuzzer case) hung the process; present in
+all previous releases.
+
+**Cause:** the decoder sized its output buffer from STREAMINFO's
+`totalPCMFrameCount` without sanity-checking it. A corrupt ~20 KB file
+claiming 3.7 billion frames demanded a ~30 GB zeroed allocation, which
+thrashed the pagefile instead of failing (the RAM preflight estimates from
+file size, so it could not catch this).
+
+**Fix:** real FLAC cannot store more than ~420 samples per byte even for
+constant silence, so a header claiming more than 512x the file size is
+treated as an unknown length and decoding takes the streaming path, which
+sizes buffers by what actually decodes. Legit files are unaffected
+(verified against ODAQ, SQAM and a maximum-density silence file).
+
+### 4. Docs and tests
+
+`docs/FFMPEG-NOTES.md` collects verified FFmpeg interop quirks (README
+candidates), the biggest being that `-f wav -` silently downconverts hi-res
+sources to 16-bit unless `-c:a pcm_s24le`/`pcm_f32le` is pinned. The
+regression suite gains a --bench section (I); `tests/regression.ps1` is now
+42 checks.
+
 ## v1.0.3 — stdout/piping fixes and honest CPU reporting
 
 A piping audit prompted by user reports. Frontend-only changes; the four engine

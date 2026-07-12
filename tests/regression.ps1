@@ -159,6 +159,36 @@ $om = "$work\rate_mono96.mp3"; $os = "$work\rate_stereo96.mp3"
 Check "mono   CBR96 keeps 44100 Hz (got $(OutRate $om))"        ((OutRate $om) -eq 44100)
 Check "stereo CBR96 downsamples to 32000 Hz (got $(OutRate $os))" ((OutRate $os) -eq 32000)
 
+Write-Host "`n=== I) --bench mode (null sink, dual clocks, repeat aggregate) ===" -ForegroundColor Cyan
+# Guardrail under test: every bench line must carry BOTH labeled clocks
+# (play/wall + play/cpu) -- never a bare per-core "x" (BENCHPLAN.md).
+$benchOut = "$work\bench_none.mp3"
+if (Test-Path $benchOut) { Remove-Item $benchOut }
+$b1 = (& $exe --bench -b 128 -t 4 $wavs["complex"] 2>&1 | Out-String)
+Check "--bench: exit 0, no outfile written" (($LASTEXITCODE -eq 0) -and -not (Test-Path $benchOut))
+Check "--bench: line has play/wall + play/cpu + par-eff" `
+    (($b1 -match "play/wall=\d+x") -and ($b1 -match "play/cpu=[\d.]+x") -and ($b1 -match "par-eff="))
+Check "--bench: stage split present" ($b1 -match "bench: stages\s+read=.*encode.*total=")
+
+$b3 = (& $exe --bench=3 -b 128 -t 4 $wavs["complex"] 2>&1 | Out-String)
+Check "--bench=3: aggregate wall[min med mean] + warmup discard" `
+    (($b3 -match "wall\[min [\d.]+ med [\d.]+ mean [\d.]+\]") -and ($b3 -match "warmup, discarded"))
+
+# bench-and-keep: giving an outfile must produce the identical bytes to a
+# normal encode of the same config.
+$bk = "$work\bench_keep.mp3"; $nk = "$work\bench_norm.mp3"
+& $exe --quiet --bench -b 128 -t 4 $wavs["complex"] $bk 2>$null | Out-Null
+& $exe --quiet -b 128 -t 4 $wavs["complex"] $nk 2>$null | Out-Null
+$same = (Get-FileHash $bk -Algorithm SHA256).Hash -eq (Get-FileHash $nk -Algorithm SHA256).Hash
+Check "--bench outfile == normal encode (byte-identical)" $same
+
+& $exe --bench=0 -b 128 $wavs["complex"] 2>$null | Out-Null
+Check "--bench=0 rejected (exit 1)" ($LASTEXITCODE -eq 1)
+
+# Pipe input: read stage must be labeled n/a (it would time the producer).
+$bp = (cmd /c "type `"$($wavs["complex"])`" | `"$exe`" --bench -b 128 -t 4 - 2>&1" | Out-String)
+Check "--bench from pipe: read labeled n/a (pipe)" ($bp -match "read=n/a \(pipe\)")
+
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host ("RESULT: $pass passed, $fail failed") -ForegroundColor $(if ($fail -eq 0) {"Green"} else {"Red"})
 exit $fail

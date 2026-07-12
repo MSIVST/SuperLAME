@@ -143,6 +143,22 @@ static inline bool DecodeFlac(const std::vector<unsigned char> &buf, WavData &w,
         return false;
     }
 
+    /* STREAMINFO's sample count is untrusted input: a corrupt header can claim
+     * billions of frames for a tiny file, and sizing the output buffer from
+     * that claim is an allocation bomb (fuzzing found a ~10 KB file demanding
+     * ~30 GB, which thrashes instead of failing). Real FLAC cannot store more
+     * than ~420 samples per byte even for constant silence (a 4608-sample
+     * frame needs ~11 bytes), so a claim past 512x the file size is a lie:
+     * treat the length as unknown and take the streaming path, which sizes
+     * buffers by what actually decodes. */
+    if (frames > (uint64_t) buf.size() * 512) {
+        if (!quiet)
+            fprintf(stderr, "FLAC: header claims %llu frames -- implausible for a "
+                    "%zu-byte file; treating length as unknown\n",
+                    (unsigned long long) frames, buf.size());
+        frames = 0;
+    }
+
     w.rate = rate; w.channels = ch; w.bits = bits;
     w.useFloat = true;
     w.samples.clear();
