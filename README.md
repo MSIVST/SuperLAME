@@ -42,13 +42,18 @@ format support, high-quality resampling, and ID3 tagging.
   album art (`--ti cover.jpg`, JPEG/PNG). FLAC inputs carry their own Vorbis
   comments and embedded cover art through automatically (CLI flags win).
 - **Robustness:** graceful out-of-memory refusal, hardened WAV/AIFF/MP3/FLAC
-  parsers (input-fuzzed + tested against the IETF FLAC conformance corpus),
-  files up to ~4 GB.
+  parsers (input-fuzzed + tested against the IETF FLAC conformance corpus;
+  lying FLAC headers can't trigger runaway allocations), files up to ~4 GB.
+- **Benchmarking:** `--bench[=N]` encodes fully in RAM and writes nothing,
+  reporting a read/resample/encode stage split and both clocks, labeled:
+  `play/wall` (honest multithreaded throughput), `play/cpu` (per-core figure
+  comparable to stock LAME's "x") and `par-eff` (parallel efficiency).
+  `--bench=N` repeats the encode and reports wall min/median/mean.
 
 ## Usage
 
 ```
-SuperLAME-1.0.2 [options] <infile> [outfile.mp3]
+SuperLAME-1.1.0 [options] <infile> [outfile.mp3]
 
   -b n            CBR bitrate (kbps)
   --abr n         ABR (average) bitrate
@@ -59,12 +64,33 @@ SuperLAME-1.0.2 [options] <infile> [outfile.mp3]
   -m mode         a=auto s=stereo m=mono j=joint
   -t n            worker threads (0 = all cores)
   --decode        decode an MP3 to WAV
+  --bench[=N]     benchmark: encode in RAM, no output (N = repeat runs)
   --tt/--ta/...   ID3 tags   |   --ti cover.jpg   album art (JPEG/PNG)
   -v / --quiet    verbose / silent
   --version --about --features --longhelp --license
 ```
 
-Run `SuperLAME-1.0.2 --longhelp` for the full listing.
+Run `SuperLAME-1.1.0 --longhelp` for the full listing.
+
+## Using with FFmpeg
+
+For WAV, AIFF and FLAC sources, skip FFmpeg — SuperLAME reads them natively
+(file or stdin). Use FFmpeg only for sources SuperLAME can't read (lossy
+inputs, video soundtracks):
+
+```sh
+ffmpeg -i in.mkv -vn -f wav - | superlame -V2 -t0 - out.mp3
+```
+
+Two verified gotchas: FFmpeg's WAV muxer **silently downconverts 24-bit and
+float sources to 16-bit** unless you pin the codec (`-c:a pcm_s24le` /
+`-c:a pcm_f32le` before `-f wav -`), and its `speed=` statistic is meaningless
+for a SuperLAME pipe (FFmpeg exits as soon as the pipe is filled — use
+SuperLAME's own stderr summary or `--bench`). With the codec pinned, piped
+input produces MP3s byte-identical to reading the file directly. The reverse
+direction works too: SuperLAME's stdout feeds FFmpeg cleanly, with a complete
+Xing/Info tag even on the pipe. Full verified list and command patterns:
+[docs/FFMPEG-NOTES.md](docs/FFMPEG-NOTES.md).
 
 ## Building
 
@@ -87,10 +113,13 @@ See `docs/BUILDING.md` for the exact fetch/patch steps.
 
 ## Notes & limits (honest)
 
-- **Speed:** ~8× stock LAME in MT, but scaling **plateaus at ~2 workers** — the
-  bit-reservoir repacker is a single serial stage that can't be parallelized, so
-  more cores don't help *one* file. For many-core batch encoding, run one process
-  per file.
+- **Speed:** ~8× stock LAME in MT — measured on a Ryzen 7 5800X3D (v1.1.0,
+  44-minute album, CBR 320): 13.8 s at 2 threads down to 3.9 s at 16
+  (~680× realtime). Scaling keeps improving past 2 workers but with
+  diminishing returns (parallel efficiency ~93% at t2, ~61% at t16) — the
+  serial bit-reservoir repacker and the chunk-overlap tax are the remaining
+  ceiling. `--bench` reports these numbers for your own machine; note that
+  files under ~300 MB go cache-resident and flatten wall timings.
 - **Memory:** the whole input, its float expansion, and the output MP3 are held
   in RAM, so practical input is ~1–2 GB (up to ~4 GB for plain 16-bit). Larger
   inputs are refused with a clear message rather than crashing.
@@ -109,7 +138,8 @@ See `docs/BUILDING.md` for the exact fetch/patch steps.
 ## Testing
 
 `tests/` contains the validation harnesses:
-- `regression.ps1` — validity, ST-vs-MT equivalence, and znver3-vs-SSE2 parity.
+- `regression.ps1` — validity, ST-vs-MT equivalence, znver3-vs-SSE2 parity,
+  and `--bench` semantics (42 checks).
 - `fuzz_input.ps1` — malformed WAV/AIFF/MP3/FLAC input fuzzing.
 - `flac_conformance.ps1` — the IETF CELLAR flac-test-files corpus.
 - `odaq.ps1` — objective ST-vs-MT parity over the ODAQ reference corpus.

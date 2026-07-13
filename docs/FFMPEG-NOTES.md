@@ -1,8 +1,8 @@
 # FFmpeg interop notes
 
 **Status:** verified 2026-07-12 against the post-1.0.3 tree (CV + `--bench` build) on the
-full pipe test matrix. This file is the staging ground for a future README "Using FFmpeg"
-section — keep entries short and user-facing.
+full pipe test matrix. The README's "Using with FFmpeg" section summarizes this file —
+keep entries here short and user-facing.
 
 ## When you don't need FFmpeg
 
